@@ -9,7 +9,7 @@ Use this schema for every saved `metadata.json`.
   "paper_id": "doi-10.1145_1234567.8901234",
   "title": "Example Paper Title",
   "abstract_en": "Original English abstract.",
-  "abstract_zh": null,
+  "abstract_zh": "对英文摘要原文的忠实直译。",
   "authors": [
     {
       "name": "Author Name",
@@ -30,22 +30,27 @@ Use this schema for every saved `metadata.json`.
     "Indexed by source metadata only"
   ],
   "pdf_path": "/abs/path/to/paper.pdf",
+  "report_pdf_path": "/abs/path/to/report.pdf",
   "pdf_parse_status": {
-    "state": "parsed",
+    "state": "已解析",
     "parser": "pymupdf+pdfplumber",
     "page_count": 12,
     "notes": [
-      "Figure assets extracted when embedded images were available."
+      "图表标题和公式提取采用启发式规则，复杂 PDF 需要人工复核。"
     ]
   },
   "figures": [
     {
-      "label": "Figure 1",
+      "label": "图 1",
+      "label_original": "Figure 1",
       "caption": "Overview of the proposed architecture.",
+      "caption_zh": "方法总体结构图。",
       "page": 3,
       "asset_path": "/abs/path/to/images/figure-1.png",
+      "crop_status": "已从页面区域裁剪",
       "visual_type": "figure",
       "evidence_summary": "Shows the two-stage encoder-decoder pipeline.",
+      "evidence_summary_zh": "展示了两阶段编码器-解码器流程。",
       "linked_sections": [
         "method_flow"
       ]
@@ -53,12 +58,16 @@ Use this schema for every saved `metadata.json`.
   ],
   "tables": [
     {
-      "label": "Table 2",
+      "label": "表 2",
+      "label_original": "Table 2",
       "caption": "Main results on CIFAR-10.",
+      "caption_zh": "CIFAR-10 主结果。",
       "page": 7,
-      "asset_path": null,
+      "asset_path": "/abs/path/to/images/table-2.png",
+      "crop_status": "已从页面区域裁剪",
       "visual_type": "table",
       "evidence_summary": "Shows the proposed model outperforming the strongest baseline by 1.7 accuracy points.",
+      "evidence_summary_zh": "显示该方法在 CIFAR-10 上比最强基线高 1.7 个点。",
       "linked_sections": [
         "results"
       ]
@@ -66,30 +75,30 @@ Use this schema for every saved `metadata.json`.
   ],
   "equations": [
     {
-      "label": "Eq. 1",
+      "label": "公式 1",
       "raw_expression": "L = sum_i ||W x_i - y_i||_2^2 + lambda ||W||_F^2",
       "page": 4,
-      "context": "Training objective",
+      "context": "训练目标",
       "symbol_explanations": {
-        "W": "model parameter matrix",
-        "lambda": "regularization weight"
+        "W": "模型参数矩阵",
+        "lambda": "正则化权重"
       },
-      "method_role": "Defines the objective optimized during training.",
-      "derivation_summary": "Combines data fitting and Frobenius regularization."
+      "method_role": "定义训练阶段优化的目标函数。",
+      "derivation_summary": "将数据拟合项和 Frobenius 正则项结合起来。"
     }
   ],
   "theoretical_items": [
     {
-      "label": "Proof",
+      "label": "证明相关段落",
       "kind": "proof",
       "page": 5,
-      "statement_summary": "Argues uniqueness of the optimum under convexity.",
+      "statement_summary": "检测到证明相关段落。",
       "assumptions": [
-        "Convex objective",
-        "Positive definite Hessian"
+        "目标函数凸",
+        "Hessian 正定"
       ],
-      "proof_summary": "Sets the gradient to zero and uses convexity to show uniqueness.",
-      "importance": "Supports optimization stability claims."
+      "proof_summary": "通过零梯度条件和凸性说明最优解唯一。",
+      "importance": "用于支持优化稳定性相关论断。"
     }
   ],
   "landing_page": "https://example.org/paper",
@@ -130,6 +139,7 @@ Use this schema for every saved `metadata.json`.
 - `arxiv_id`
 - `citation_count`
 - `pdf_path`
+- `report_pdf_path`
 - `pdf_parse_status`
 - `landing_page`
 - `figures`
@@ -156,18 +166,26 @@ Use this schema for every saved `metadata.json`.
 - `pdf_path`
   - use an absolute path when the PDF exists locally
   - otherwise keep `null`
+- `report_pdf_path`
+  - use an absolute path when `report.pdf` exists locally
+  - otherwise keep `null`
 - `pdf_parse_status`
   - use `state: parsed` only when a local parser completed successfully
   - include the parser name and page count when available
 - `figures` and `tables`
   - store caption-level evidence even if no image asset could be extracted
   - use absolute paths for `asset_path` when an extracted image exists locally
+  - prefer `caption_zh` and `evidence_summary_zh` for final report rendering
+  - keep `crop_status` to distinguish page-region crops from caption-only fallback
 - `equations`
   - keep the raw expression text as extracted or lightly normalized
   - explain symbols only when you have evidence from the paper context
 - `theoretical_items`
   - use for theorem, lemma, proposition, or proof related evidence
   - keep proof summaries concise and evidence-based
+- `abstract_zh`
+  - must be a faithful direct translation of `abstract_en`
+  - do not use a free-form summary as the Chinese abstract
 
 ## AuthorProfile Shape
 
@@ -212,8 +230,8 @@ The report renderer expects a second JSON file with analysis fields such as:
     "核心步骤 2"
   ],
   "method_evidence": [
-    "Figure 1 shows a two-stage encoder-decoder pipeline.",
-    "Eq. 1 defines the regularized training objective."
+    "图 1 展示了两阶段编码器-解码器流程。",
+    "公式 1 定义了带正则项的训练目标。"
   ],
   "experiment_pipeline": [
     "实验步骤 1",
@@ -224,43 +242,49 @@ The report renderer expects a second JSON file with analysis fields such as:
     "最值得关注的点 2"
   ],
   "result_evidence": [
-    "Table 2 reports +1.7 accuracy over the strongest baseline on CIFAR-10."
+    "表 2 显示该方法在 CIFAR-10 上比最强基线高 1.7 个点。"
   ],
   "key_figures": [
     {
-      "label": "Figure 1",
+      "label": "图 1",
       "caption": "Overview of the architecture.",
+      "caption_zh": "方法总体结构图。",
       "page": 3,
       "asset_path": "/abs/path/to/images/figure-1.png",
-      "evidence_summary": "Shows the two-stage pipeline."
+      "crop_status": "已从页面区域裁剪",
+      "evidence_summary": "Shows the two-stage pipeline.",
+      "evidence_summary_zh": "展示了两阶段流程。"
     }
   ],
   "key_tables": [
     {
-      "label": "Table 2",
+      "label": "表 2",
       "caption": "Main results.",
+      "caption_zh": "主要结果表。",
       "page": 7,
-      "asset_path": null,
-      "evidence_summary": "Shows the proposed model outperforming baselines."
+      "asset_path": "/abs/path/to/images/table-2.png",
+      "crop_status": "已从页面区域裁剪",
+      "evidence_summary": "Shows the proposed model outperforming baselines.",
+      "evidence_summary_zh": "显示该方法优于基线。"
     }
   ],
   "key_equations": [
     {
-      "label": "Eq. 1",
+      "label": "公式 1",
       "raw_expression": "L = sum_i ||W x_i - y_i||_2^2 + lambda ||W||_F^2",
       "symbol_explanations": {
-        "W": "parameter matrix",
-        "lambda": "regularization weight"
+        "W": "参数矩阵",
+        "lambda": "正则化权重"
       },
-      "method_role": "Training objective",
-      "derivation_summary": "Balances data fit and regularization."
+      "method_role": "训练目标",
+      "derivation_summary": "平衡数据拟合和正则化。"
     }
   ],
   "derivation_explanations": [
-    "The loss adds Frobenius regularization to keep parameter magnitude controlled."
+    "该损失在数据拟合项之外加入了 Frobenius 正则，以约束参数规模。"
   ],
   "proof_explanations": [
-    "The proof uses convexity and zero-gradient conditions to establish uniqueness."
+    "证明利用凸性和零梯度条件来说明最优解唯一。"
   ],
   "results": "实验结果总结",
   "value": "论文价值",

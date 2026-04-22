@@ -23,10 +23,12 @@ class PdfAnalyzerTests(unittest.TestCase):
 
             doc = fitz.open()
             page = doc.new_page()
-            page.insert_text((72, 72), "Figure 1: Overall architecture of the method.")
-            page.insert_text((72, 100), "Table 1: Main results on CIFAR-10.")
-            page.insert_text((72, 128), "L = W x + b + lambda")
-            page.insert_text((72, 156), "Proof. We set the gradient to zero and show uniqueness.")
+            page.draw_rect(fitz.Rect(72, 72, 320, 180), color=(0, 0, 0), fill=(0.85, 0.85, 0.85))
+            page.insert_text((72, 200), "Figure 1: Overall architecture of the method.")
+            page.insert_text((72, 230), "Table 1: Main results on CIFAR-10.")
+            page.draw_rect(fitz.Rect(72, 250, 320, 340), color=(0, 0, 0), fill=(0.95, 0.95, 0.95))
+            page.insert_text((72, 360), "L = W x + b + lambda")
+            page.insert_text((72, 390), "Proof. We set the gradient to zero and show uniqueness.")
             doc.save(pdf_path)
             doc.close()
 
@@ -39,6 +41,9 @@ class PdfAnalyzerTests(unittest.TestCase):
             self.assertTrue(payload["theoretical_items"])
             self.assertEqual(payload["figures"][0]["label"], "图 1")
             self.assertEqual(payload["tables"][0]["label"], "表 1")
+            self.assertTrue(Path(payload["figures"][0]["asset_path"]).exists())
+            self.assertEqual(payload["figures"][0]["crop_status"], "已从页面区域裁剪")
+            self.assertTrue(Path(payload["tables"][0]["asset_path"]).exists())
 
 
 if __name__ == "__main__":
