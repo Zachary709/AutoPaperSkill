@@ -66,21 +66,22 @@ class RenderReportTests(unittest.TestCase):
                 "improvements": "可以继续优化。",
             }
 
-            report_path = root / "report.md"
+            report_path = root / "report.tex"
             report = render_report.render_report(metadata, analysis, report_path)
-            self.assertIn("# Example Paper", report)
-            self.assertIn("## 英文摘要原文", report)
-            self.assertIn("## 中文摘要", report)
-            self.assertIn("## 一句话概括", report)
-            self.assertIn("## 论文概览", report)
-            self.assertIn("- 论文 ID: title-123", report)
-            self.assertIn("## 关键图解读", report)
-            self.assertIn("![图 1](images/figure-1.png)", report)
-            self.assertIn("## 关键表解读", report)
-            self.assertIn("## 关键公式与变量说明", report)
-            self.assertIn("## 推导过程解释", report)
-            self.assertIn("## 证明过程解释", report)
-            self.assertIn("## 可以怎么优化", report)
+            self.assertIn(r"\title{Example Paper}", report)
+            self.assertIn(r"\section{英文摘要原文}", report)
+            self.assertIn(r"\section{中文摘要}", report)
+            self.assertIn(r"\section{一句话概括}", report)
+            self.assertIn(r"\section{论文概览}", report)
+            self.assertIn(r"\item 论文 ID: title-123", report)
+            self.assertIn(r"\section{关键图解读}", report)
+            self.assertIn(r"\includegraphics", report)
+            self.assertIn(str(figure_path.resolve()).replace("\\", "/"), report)
+            self.assertIn(r"\section{关键表解读}", report)
+            self.assertIn(r"\section{关键公式与变量说明}", report)
+            self.assertIn(r"\section{推导过程解释}", report)
+            self.assertIn(r"\section{证明过程解释}", report)
+            self.assertIn(r"\section{可以怎么优化}", report)
 
     def test_render_report_filters_english_only_analysis_blocks(self) -> None:
         metadata = {
@@ -97,7 +98,8 @@ class RenderReportTests(unittest.TestCase):
 
         report = render_report.render_report(metadata, analysis)
         self.assertNotIn("This is still English only.", report)
-        self.assertIn("## 论文在做什么\n暂无信息。", report)
+        self.assertIn(r"\section{论文在做什么}", report)
+        self.assertIn("暂无信息。", report)
 
 
 

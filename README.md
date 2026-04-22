@@ -2,7 +2,7 @@
 
 `AutoPaperSkill` is a Codex skill for research-paper discovery, deduplication, local storage, and deep paper analysis.
 
-It is designed for conversation-first use inside Codex, while keeping a few local helper scripts for deterministic tasks such as paper storage, PDF parsing, Markdown report rendering, and PDF compilation.
+It is designed for conversation-first use inside Codex, while keeping a few local helper scripts for deterministic tasks such as paper storage, PDF parsing, LaTeX report rendering, and PDF compilation.
 
 ## What It Does
 
@@ -16,8 +16,8 @@ For deep analysis, the skill requires a local PDF and then:
 
 - parses the paper PDF for text, figures, tables, equations, and proof-related evidence
 - saves extracted visual assets into `images/`
-- generates a Chinese-first `report.md`
-- compiles the Markdown report into `report.pdf`
+- generates a Chinese-first `report.tex`
+- compiles the LaTeX report into `report.pdf`
 
 ## Current Analysis Behavior
 
@@ -26,9 +26,10 @@ The current version is optimized for evidence-grounded paper reports rather than
 - Final report narration is Chinese by default.
 - `英文摘要原文` is preserved verbatim.
 - `中文摘要` is intended to be a faithful direct translation of the English abstract, not a free-form summary.
-- Figures and tables are extracted by caption-based page-region cropping when possible.
+- Figures and tables are parsed by Docling as structured document objects first, then exported into `images/`.
 - Equations keep their original mathematical expressions, but surrounding explanations are in Chinese.
 - If OpenReview exposes a PDF resource, the skill should use that PDF instead of silently falling back to arXiv.
+- The PDF parser is the standard local `docling` pipeline only. This repository does not require `docling[vlm]`, remote VLM services, or separate large-model deployment.
 
 ## Output Layout
 
@@ -44,7 +45,7 @@ Typical contents:
 - `metadata.json`
 - `analysis.json`
 - `images/`
-- `report.md`
+- `report.tex`
 - `report.pdf`
 
 ## Install

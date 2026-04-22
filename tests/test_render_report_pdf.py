@@ -13,17 +13,32 @@ from scripts import render_report_pdf
 
 
 class RenderReportPdfTests(unittest.TestCase):
-    def test_render_markdown_file_to_pdf_creates_pdf(self) -> None:
+    def test_render_tex_file_to_pdf_creates_pdf(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            markdown_path = root / "report.md"
-            markdown_path.write_text(
-                "# 示例论文\n\n## 中文摘要\n这是一段中文摘要。\n\n## 实验结果\n- 结果 1\n",
+            tex_path = root / "report.tex"
+            tex_path.write_text(
+                r"""
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setmainfont{Noto Serif CJK SC}
+\setCJKmainfont{Noto Serif CJK SC}
+\begin{document}
+\section{中文摘要}
+这是一段中文摘要。
+\section{实验结果}
+\begin{itemize}
+\item 结果 1
+\end{itemize}
+\end{document}
+""".strip()
+                + "\n",
                 encoding="utf-8",
             )
             output_pdf = root / "report.pdf"
 
-            render_report_pdf.render_markdown_file_to_pdf(markdown_path, output_pdf)
+            render_report_pdf.render_tex_file_to_pdf(tex_path, output_pdf)
 
             self.assertTrue(output_pdf.exists())
             self.assertGreater(output_pdf.stat().st_size, 0)

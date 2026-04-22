@@ -30,13 +30,15 @@ Use this schema for every saved `metadata.json`.
     "Indexed by source metadata only"
   ],
   "pdf_path": "/abs/path/to/paper.pdf",
+  "report_tex_path": "/abs/path/to/report.tex",
   "report_pdf_path": "/abs/path/to/report.pdf",
   "pdf_parse_status": {
     "state": "已解析",
-    "parser": "pymupdf+pdfplumber",
+    "parser": "docling",
     "page_count": 12,
     "notes": [
-      "图表标题和公式提取采用启发式规则，复杂 PDF 需要人工复核。"
+      "图和表优先由 Docling 直接解析为文档对象，再导出对应图像资产。",
+      "当前未启用 Docling VLM、图片描述或远程模型服务。"
     ]
   },
   "figures": [
@@ -47,7 +49,7 @@ Use this schema for every saved `metadata.json`.
       "caption_zh": "方法总体结构图。",
       "page": 3,
       "asset_path": "/abs/path/to/images/figure-1.png",
-      "crop_status": "已从页面区域裁剪",
+      "crop_status": "已由 Docling 直接导出",
       "visual_type": "figure",
       "evidence_summary": "Shows the two-stage encoder-decoder pipeline.",
       "evidence_summary_zh": "展示了两阶段编码器-解码器流程。",
@@ -64,7 +66,7 @@ Use this schema for every saved `metadata.json`.
       "caption_zh": "CIFAR-10 主结果。",
       "page": 7,
       "asset_path": "/abs/path/to/images/table-2.png",
-      "crop_status": "已从页面区域裁剪",
+      "crop_status": "已由 Docling 直接导出",
       "visual_type": "table",
       "evidence_summary": "Shows the proposed model outperforming the strongest baseline by 1.7 accuracy points.",
       "evidence_summary_zh": "显示该方法在 CIFAR-10 上比最强基线高 1.7 个点。",
@@ -139,6 +141,7 @@ Use this schema for every saved `metadata.json`.
 - `arxiv_id`
 - `citation_count`
 - `pdf_path`
+- `report_tex_path`
 - `report_pdf_path`
 - `pdf_parse_status`
 - `landing_page`
@@ -166,6 +169,9 @@ Use this schema for every saved `metadata.json`.
 - `pdf_path`
   - use an absolute path when the PDF exists locally
   - otherwise keep `null`
+- `report_tex_path`
+  - use an absolute path when `report.tex` exists locally
+  - otherwise keep `null`
 - `report_pdf_path`
   - use an absolute path when `report.pdf` exists locally
   - otherwise keep `null`
@@ -176,7 +182,7 @@ Use this schema for every saved `metadata.json`.
   - store caption-level evidence even if no image asset could be extracted
   - use absolute paths for `asset_path` when an extracted image exists locally
   - prefer `caption_zh` and `evidence_summary_zh` for final report rendering
-  - keep `crop_status` to distinguish page-region crops from caption-only fallback
+  - keep `crop_status` to distinguish Docling direct exports from fallback crops or caption-only fallback
 - `equations`
   - keep the raw expression text as extracted or lightly normalized
   - explain symbols only when you have evidence from the paper context
@@ -251,7 +257,7 @@ The report renderer expects a second JSON file with analysis fields such as:
       "caption_zh": "方法总体结构图。",
       "page": 3,
       "asset_path": "/abs/path/to/images/figure-1.png",
-      "crop_status": "已从页面区域裁剪",
+      "crop_status": "已由 Docling 直接导出",
       "evidence_summary": "Shows the two-stage pipeline.",
       "evidence_summary_zh": "展示了两阶段流程。"
     }
@@ -263,7 +269,7 @@ The report renderer expects a second JSON file with analysis fields such as:
       "caption_zh": "主要结果表。",
       "page": 7,
       "asset_path": "/abs/path/to/images/table-2.png",
-      "crop_status": "已从页面区域裁剪",
+      "crop_status": "已由 Docling 直接导出",
       "evidence_summary": "Shows the proposed model outperforming baselines.",
       "evidence_summary_zh": "显示该方法优于基线。"
     }

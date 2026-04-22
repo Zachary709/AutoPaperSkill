@@ -1,6 +1,6 @@
 # Report Template
 
-Keep this exact section order when writing `report.md`.
+Keep this exact section order when writing `report.tex`.
 
 ```markdown
 # <Paper Title>
@@ -70,6 +70,7 @@ Keep this exact section order when writing `report.md`.
 
 The saved bundle should also include:
 
+- `report.tex`
 - `report.pdf`
 
 ## Rendering Rules

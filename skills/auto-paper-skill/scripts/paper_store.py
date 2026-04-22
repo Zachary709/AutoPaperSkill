@@ -343,6 +343,7 @@ def upsert_bundle(
     metadata: dict[str, Any],
     pdf_source: Path | None = None,
     report_file: Path | None = None,
+    report_pdf_file: Path | None = None,
 ) -> dict[str, Any]:
     library_dir.mkdir(parents=True, exist_ok=True)
     records, _errors = scan_library(library_dir)
@@ -372,7 +373,13 @@ def upsert_bundle(
     write_json(target_dir / "metadata.json", final_record)
 
     if report_file is not None:
-        safe_copy(report_file, target_dir / "report.md")
+        safe_copy(report_file, target_dir / report_file.name)
+
+    if report_pdf_file is not None:
+        report_pdf_destination = target_dir / "report.pdf"
+        safe_copy(report_pdf_file, report_pdf_destination)
+        final_record["report_pdf_path"] = str(report_pdf_destination.resolve())
+        write_json(target_dir / "metadata.json", final_record)
 
     return {
         "created": created,
@@ -401,6 +408,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     upsert_parser.add_argument("--metadata-file", required=True)
     upsert_parser.add_argument("--pdf-source")
     upsert_parser.add_argument("--report-file")
+    upsert_parser.add_argument("--report-pdf-file")
     upsert_parser.add_argument("--json", action="store_true")
 
     return parser.parse_args(argv)
@@ -448,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             metadata=load_json(Path(args.metadata_file)),
             pdf_source=Path(args.pdf_source) if args.pdf_source else None,
             report_file=Path(args.report_file) if args.report_file else None,
+            report_pdf_file=Path(args.report_pdf_file) if args.report_pdf_file else None,
         )
         return emit(payload, args.json)
 
