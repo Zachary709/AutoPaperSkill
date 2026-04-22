@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills" / "auto-paper-skill"
+if str(SKILL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts import paper_store
 
