@@ -49,6 +49,44 @@ def render_block(value: Any) -> str:
     return str(value)
 
 
+def format_records(value: Any, *, include_asset: bool = False, include_symbols: bool = False) -> str:
+    if not isinstance(value, list) or not value:
+        return "Not available."
+
+    lines = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("label") or item.get("kind") or "Item"
+        details = []
+        if item.get("caption"):
+            details.append(str(item["caption"]))
+        if item.get("raw_expression"):
+            details.append(str(item["raw_expression"]))
+        if item.get("method_role"):
+            details.append(f"role: {item['method_role']}")
+        if item.get("evidence_summary"):
+            details.append(f"evidence: {item['evidence_summary']}")
+        if item.get("derivation_summary"):
+            details.append(f"derivation: {item['derivation_summary']}")
+        if item.get("proof_summary"):
+            details.append(f"proof: {item['proof_summary']}")
+        if item.get("page") not in (None, ""):
+            details.append(f"page: {item['page']}")
+        if include_asset and item.get("asset_path"):
+            details.append(f"asset: {item['asset_path']}")
+        if include_symbols and isinstance(item.get("symbol_explanations"), dict):
+            symbol_text = ", ".join(
+                f"{key}={value}"
+                for key, value in item["symbol_explanations"].items()
+                if value not in (None, "", [])
+            )
+            if symbol_text:
+                details.append(f"symbols: {symbol_text}")
+        lines.append(f"- {label}: " + (" | ".join(details) if details else "Not available."))
+    return "\n".join(lines) or "Not available."
+
+
 def format_authors(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
     highlights = analysis.get("collaboration_highlights")
     if highlights:
@@ -100,6 +138,7 @@ def build_snapshot(metadata: dict[str, Any]) -> list[str]:
         f"- arXiv ID: {first_value(metadata.get('arxiv_id'), 'Not available.')}",
         f"- Citations: {first_value(metadata.get('citation_count'), 'Not available.')}",
         f"- PDF Path: {first_value(metadata.get('pdf_path'), 'Not available.')}",
+        f"- PDF Parse Status: {first_value(metadata.get('pdf_parse_status', {}).get('state') if isinstance(metadata.get('pdf_parse_status'), dict) else None, 'Not available.')}",
         f"- Landing Page: {first_value(metadata.get('landing_page'), 'Not available.')}",
         f"- Sources: {source_summary}",
     ]
@@ -120,7 +159,35 @@ def render_report(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
         ("## 论文在做什么", render_block(analysis.get("paper_goal"))),
         (
             "## 方法 / 流程",
-            render_block(first_value(analysis.get("method_flow"), analysis.get("method"))),
+            render_block(
+                first_value(
+                    analysis.get("method_flow"),
+                    analysis.get("method"),
+                    analysis.get("method_evidence"),
+                )
+            ),
+        ),
+        (
+            "## 关键图解读",
+            format_records(first_value(analysis.get("key_figures"), metadata.get("figures")), include_asset=True),
+        ),
+        (
+            "## 关键表解读",
+            format_records(first_value(analysis.get("key_tables"), metadata.get("tables")), include_asset=True),
+        ),
+        (
+            "## 关键公式与变量说明",
+            format_records(first_value(analysis.get("key_equations"), metadata.get("equations")), include_symbols=True),
+        ),
+        ("## 推导过程解释", render_block(analysis.get("derivation_explanations"))),
+        (
+            "## 证明过程解释",
+            render_block(
+                first_value(
+                    analysis.get("proof_explanations"),
+                    metadata.get("theoretical_items"),
+                )
+            ),
         ),
         ("## 完整实验流程", render_block(analysis.get("experiment_pipeline"))),
         (
@@ -132,9 +199,15 @@ def render_report(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
                 )
             ),
         ),
-        ("## 实验结果", render_block(analysis.get("results"))),
+        (
+            "## 实验结果",
+            render_block(first_value(analysis.get("result_evidence"), analysis.get("results"))),
+        ),
         ("## 这篇论文的价值", render_block(analysis.get("value"))),
-        ("## 局限", render_block(analysis.get("limitations"))),
+        (
+            "## 局限",
+            render_block(first_value(analysis.get("limitation_evidence"), analysis.get("limitations"))),
+        ),
         ("## 可以怎么优化", render_block(analysis.get("improvements"))),
     ]
 

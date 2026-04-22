@@ -15,6 +15,7 @@ The primary interface is dialogue. Use helper scripts only for deterministic loc
 - computing stable paper IDs
 - checking duplicate papers against an existing library
 - writing or merging local metadata bundles
+- parsing a local PDF into text, figure, table, equation, and proof evidence
 - rendering the final Markdown report
 
 Read these references before doing the corresponding work:
@@ -92,14 +93,19 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
 1. Inspect the local paper library first when a local directory is available.
    - Use `python3 scripts/paper_store.py scan --library-dir <dir> --json` when a structured scan will save time.
 2. Search or resolve papers according to the selected mode.
-3. Normalize each paper into the schema in `references/metadata-schema.md`.
-4. Compute `paper_id` using `doi > arXiv ID > title hash`.
-5. Deduplicate against the local library and within the current result set.
+3. Retrieve and save the PDF before any deep analysis or final report generation.
+   - If the request is only paper discovery, you may stop before downloading PDFs.
+   - If the request includes analysis, report generation, figure usage, formula usage, or method detail, a local PDF is mandatory.
+4. Normalize each paper into the schema in `references/metadata-schema.md`.
+5. Compute `paper_id` using `doi > arXiv ID > title hash`.
+6. Deduplicate against the local library and within the current result set.
    - Use `python3 scripts/paper_store.py match --library-dir <dir> --metadata-file <file> --json` when you need a deterministic duplicate decision.
-6. Show candidate papers before saving unless the user explicitly asked for direct save.
-7. Save accepted papers into the target directory.
+7. Show candidate papers before saving unless the user explicitly asked for direct save.
+8. Save accepted papers into the target directory.
    - Use `python3 scripts/paper_store.py upsert --library-dir <dir> --metadata-file <file> [--pdf-source <path>] [--report-file <path>] --json` when local writing needs to be stable.
-8. Generate the final paper report.
+9. Parse the local PDF into structured evidence before analysis.
+   - Use `python3 scripts/pdf_analyzer.py --pdf <path> --output-json <path> --images-dir <dir>` when deterministic PDF parsing is useful.
+10. Generate the final paper report.
    - Use `python3 scripts/render_report.py --metadata-file <file> --analysis-file <file> --output <path>` when deterministic report formatting is useful.
 
 ## Source Policy
@@ -160,11 +166,13 @@ Save each paper under:
 
 The directory should contain:
 
-- `paper.pdf` when available
+- `paper.pdf` for any deep analysis or final report
 - `metadata.json`
+- `analysis.json` when a report is generated
+- `images/` for extracted figure assets when available
 - `report.md` when a report is generated
 
-If the PDF cannot be retrieved, still save `metadata.json` and keep `pdf_path` as `null`.
+If the PDF cannot be retrieved, you may still save `metadata.json` for discovery-only workflows, but do not generate a formal analysis report. Keep `pdf_path` as `null` and state clearly that analysis is blocked on PDF retrieval.
 
 ## Report Requirements
 
@@ -186,6 +194,24 @@ At minimum, the report must contain:
 - limitations
 - optimization ideas
 
+For deep analysis, the report must also contain:
+
+- key figure interpretation
+- key table interpretation
+- key equations with variable and role explanations
+- derivation explanation when the method depends on non-trivial formulas
+- proof explanation when the paper includes theorem, lemma, proposition, or proof structure
+
+Core analytical sections must be evidence-grounded. Bind claims to at least one concrete anchor whenever possible:
+
+- figure number or caption
+- table number or caption
+- equation text or label
+- theorem or proof marker
+- dataset, metric, ablation, or training setup detail from the PDF
+
+Do not write generic statements like `the method is effective` or `the experiments are comprehensive` without concrete evidence from the PDF.
+
 When information is missing, keep the section and write `Not available.` instead of deleting it.
 
 ## Guardrails
@@ -196,6 +222,10 @@ When information is missing, keep the section and write `Not available.` instead
 - Keep `metadata.json` UTF-8 and machine-readable.
 - Prefer structured intermediate data before writing `report.md`.
 - If the user only wants discovery, do not save files unless they ask.
+- Do not produce a formal deep-analysis report without a local PDF.
+- Prefer `PyMuPDF + pdfplumber` for local deterministic PDF parsing in this skill because it avoids model-download dependencies in restricted environments.
+- If figure or table images cannot be extracted, still keep caption-level evidence and explain that the visual asset was unavailable.
+- Keep formula explanations concrete: name symbols, explain the objective or update rule, and say how the formula affects training, inference, or proof.
 
 ## Helper Scripts
 
@@ -217,6 +247,18 @@ Use this when you already have:
 - a structured analysis JSON payload
 
 The script renders a stable Markdown report with the exact section order expected by this skill.
+
+### `scripts/pdf_analyzer.py`
+
+Use this when you have a local PDF and need deterministic evidence extraction for:
+
+- per-page text
+- figure and table captions
+- embedded figure assets when available
+- equation-like lines
+- proof or theorem paragraphs
+
+This script is the default parser for deep analysis in restricted environments.
 
 ## Example Requests
 

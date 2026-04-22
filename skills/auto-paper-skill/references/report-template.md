@@ -34,6 +34,21 @@ Keep this exact section order when writing `report.md`.
 ## 方法 / 流程
 ...
 
+## 关键图解读
+...
+
+## 关键表解读
+...
+
+## 关键公式与变量说明
+...
+
+## 推导过程解释
+...
+
+## 证明过程解释
+...
+
 ## 完整实验流程
 ...
 
@@ -61,3 +76,5 @@ Keep this exact section order when writing `report.md`.
 - Keep Chinese analysis sections concise but substantive.
 - Put author prestige or collaboration claims in `## 作者与合作亮点`, not in the snapshot bullets.
 - If multiple sources disagree, summarize the conflict briefly in the relevant section and keep the detailed attribution in `metadata.json`.
+- In `方法 / 流程`, `实验结果`, `局限`, and the formula-related sections, anchor claims to figure labels, table labels, equations, or proof markers whenever possible.
+- Prefer specific statements such as datasets, metrics, loss terms, module names, ablation findings, and proof assumptions over generic evaluations.

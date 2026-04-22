@@ -25,9 +25,33 @@ class RenderReportTests(unittest.TestCase):
             "summary_one_liner": "一句话概括",
             "paper_goal": "在做一个新方法。",
             "method_flow": ["步骤 1", "步骤 2"],
+            "key_figures": [
+                {
+                    "label": "Figure 1",
+                    "caption": "总体结构图",
+                    "evidence_summary": "展示了两阶段流程。",
+                }
+            ],
+            "key_tables": [
+                {
+                    "label": "Table 1",
+                    "caption": "主要结果",
+                    "evidence_summary": "比基线高 2 个点。",
+                }
+            ],
+            "key_equations": [
+                {
+                    "label": "Eq. 1",
+                    "raw_expression": "L = x + y",
+                    "symbol_explanations": {"x": "输入", "y": "目标"},
+                    "method_role": "目标函数",
+                }
+            ],
+            "derivation_explanations": ["先定义目标函数，再求最优参数。"],
+            "proof_explanations": ["用零梯度条件说明最优解唯一。"],
             "experiment_pipeline": ["实验 1"],
             "key_experimental_points": ["亮点 1"],
-            "results": "效果很好。",
+            "result_evidence": ["Table 1 显示相对基线提升 2 个点。"],
             "value": "有研究价值。",
             "limitations": "有局限。",
             "improvements": "可以继续优化。",
@@ -38,7 +62,13 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn("## 英文摘要原文", report)
         self.assertIn("## 中文摘要", report)
         self.assertIn("## 一句话概括", report)
+        self.assertIn("## 关键图解读", report)
+        self.assertIn("## 关键表解读", report)
+        self.assertIn("## 关键公式与变量说明", report)
+        self.assertIn("## 推导过程解释", report)
+        self.assertIn("## 证明过程解释", report)
         self.assertIn("## 可以怎么优化", report)
+
 
 
 if __name__ == "__main__":
