@@ -182,7 +182,7 @@ Use this schema for every saved `metadata.json`.
   - store caption-level evidence even if no image asset could be extracted
   - use absolute paths for `asset_path` when an extracted image exists locally
   - prefer `caption_zh` and `evidence_summary_zh` for final report rendering
-  - keep `crop_status` to distinguish Docling direct exports from fallback crops or caption-only fallback
+  - keep `crop_status` to distinguish Docling direct exports from caption-only cases without image assets
 - `equations`
   - keep the raw expression text as extracted or lightly normalized
   - explain symbols only when you have evidence from the paper context

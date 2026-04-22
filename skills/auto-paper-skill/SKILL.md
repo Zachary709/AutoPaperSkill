@@ -241,7 +241,7 @@ When information is missing, keep the section and write `暂无信息。` instea
 - If the user only wants discovery, do not save files unless they ask.
 - Do not produce a formal deep-analysis report without a local PDF.
 - Prefer the standard local `Docling` PDF pipeline as the primary parser in this skill because it can directly recover structured figures, tables, formulas, and reading-order text from the PDF without enabling VLM features.
-- If Docling is unavailable or fails on a specific file, fall back to the legacy `PyMuPDF + pdfplumber` heuristic parser and state that fallback explicitly.
+- If Docling is unavailable or fails on a specific file, stop and report the parsing failure explicitly instead of switching to another parser.
 - If figure or table images cannot be exported even after Docling identifies the object, still keep caption-level evidence and explain that the visual asset was unavailable.
 - Do not enable `docling[vlm]`, picture-description enrichments, or remote inference services for this skill's default PDF parsing path.
 - Keep formula explanations concrete: name symbols, explain the objective or update rule, and say how the formula affects training, inference, or proof.
@@ -282,9 +282,8 @@ Use this when you have a local PDF and need deterministic evidence extraction fo
 - structured figures and tables exported by Docling
 - figure and table captions
 - formula-like text and proof-related paragraphs from structured reading-order output
-- fallback cropped figure and table assets only when Docling is unavailable or fails
 
-This script uses the standard local Docling PDF pipeline as the default parser for deep analysis and only falls back to the legacy heuristic parser when necessary.
+This script uses the standard local Docling PDF pipeline as the required parser for deep analysis. If Docling parsing fails, the script should error out rather than silently using a different parser.
 
 ## Example Requests
 
