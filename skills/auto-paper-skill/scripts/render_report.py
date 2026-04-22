@@ -26,9 +26,9 @@ def first_value(*values: Any) -> Any:
 
 def render_block(value: Any) -> str:
     if value in (None, "", []):
-        return "Not available."
+        return "暂无信息。"
     if isinstance(value, str):
-        return value.strip() or "Not available."
+        return value.strip() or "暂无信息。"
     if isinstance(value, list):
         lines = []
         for item in value:
@@ -38,43 +38,45 @@ def render_block(value: Any) -> str:
                 text = json.dumps(item, ensure_ascii=False, sort_keys=True)
             if text:
                 lines.append(f"- {text}")
-        return "\n".join(lines) or "Not available."
+        return "\n".join(lines) or "暂无信息。"
     if isinstance(value, dict):
         lines = []
         for key, item in value.items():
             if item in (None, "", []):
                 continue
             lines.append(f"- {key}: {item}")
-        return "\n".join(lines) or "Not available."
+        return "\n".join(lines) or "暂无信息。"
     return str(value)
 
 
 def format_records(value: Any, *, include_asset: bool = False, include_symbols: bool = False) -> str:
     if not isinstance(value, list) or not value:
-        return "Not available."
+        return "暂无信息。"
 
     lines = []
     for item in value:
         if not isinstance(item, dict):
             continue
-        label = item.get("label") or item.get("kind") or "Item"
+        label = item.get("label_zh") or item.get("label") or item.get("kind") or "条目"
         details = []
-        if item.get("caption"):
+        if item.get("caption_zh"):
+            details.append(str(item["caption_zh"]))
+        elif item.get("caption"):
             details.append(str(item["caption"]))
         if item.get("raw_expression"):
             details.append(str(item["raw_expression"]))
         if item.get("method_role"):
-            details.append(f"role: {item['method_role']}")
+            details.append(f"作用: {item['method_role']}")
         if item.get("evidence_summary"):
-            details.append(f"evidence: {item['evidence_summary']}")
+            details.append(f"证据: {item['evidence_summary']}")
         if item.get("derivation_summary"):
-            details.append(f"derivation: {item['derivation_summary']}")
+            details.append(f"推导: {item['derivation_summary']}")
         if item.get("proof_summary"):
-            details.append(f"proof: {item['proof_summary']}")
+            details.append(f"证明: {item['proof_summary']}")
         if item.get("page") not in (None, ""):
-            details.append(f"page: {item['page']}")
+            details.append(f"页码: {item['page']}")
         if include_asset and item.get("asset_path"):
-            details.append(f"asset: {item['asset_path']}")
+            details.append(f"资源: {item['asset_path']}")
         if include_symbols and isinstance(item.get("symbol_explanations"), dict):
             symbol_text = ", ".join(
                 f"{key}={value}"
@@ -82,9 +84,9 @@ def format_records(value: Any, *, include_asset: bool = False, include_symbols: 
                 if value not in (None, "", [])
             )
             if symbol_text:
-                details.append(f"symbols: {symbol_text}")
-        lines.append(f"- {label}: " + (" | ".join(details) if details else "Not available."))
-    return "\n".join(lines) or "Not available."
+                details.append(f"符号: {symbol_text}")
+        lines.append(f"- {label}: " + (" | ".join(details) if details else "暂无信息。"))
+    return "\n".join(lines) or "暂无信息。"
 
 
 def format_authors(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
@@ -94,61 +96,61 @@ def format_authors(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
 
     authors = metadata.get("authors")
     if not isinstance(authors, list) or not authors:
-        return "Not available."
+        return "暂无信息。"
 
     lines = []
     for author in authors:
         if not isinstance(author, dict):
             continue
-        name = author.get("name") or "Unknown author"
+        name = author.get("name") or "未知作者"
         parts = []
         if author.get("affiliation"):
             parts.append(str(author["affiliation"]))
         if author.get("citation_count") not in (None, ""):
-            parts.append(f"citations: {author['citation_count']}")
+            parts.append(f"引用: {author['citation_count']}")
         if author.get("h_index") not in (None, ""):
             parts.append(f"h-index: {author['h_index']}")
         if author.get("is_high_impact"):
-            source = author.get("evidence_source") or "unknown source"
-            parts.append(f"high-impact ({source})")
+            source = author.get("evidence_source") or "未知来源"
+            parts.append(f"高影响力作者 ({source})")
         suffix = " | ".join(parts)
         lines.append(f"- {name}" + (f" | {suffix}" if suffix else ""))
-    return "\n".join(lines) or "Not available."
+    return "\n".join(lines) or "暂无信息。"
 
 
 def build_snapshot(metadata: dict[str, Any]) -> list[str]:
     sources = metadata.get("metadata_sources")
-    source_summary = "Not available."
+    source_summary = "暂无信息。"
     if isinstance(sources, list) and sources:
         formatted = []
         for source in sources:
             if not isinstance(source, dict):
                 continue
-            name = source.get("source_name") or "unknown"
-            marker = "official" if source.get("is_official") else "fallback"
+            name = source.get("source_name") or "未知来源"
+            marker = "官方" if source.get("is_official") else "回退来源"
             formatted.append(f"{name} ({marker})")
         if formatted:
             source_summary = ", ".join(formatted)
 
     return [
-        f"- Paper ID: {first_value(metadata.get('paper_id'), 'Not available.')}",
-        f"- Published: {first_value(metadata.get('published_at'), 'Not available.')}",
-        f"- Venue: {first_value(metadata.get('venue'), 'Not available.')}",
-        f"- DOI: {first_value(metadata.get('doi'), 'Not available.')}",
-        f"- arXiv ID: {first_value(metadata.get('arxiv_id'), 'Not available.')}",
-        f"- Citations: {first_value(metadata.get('citation_count'), 'Not available.')}",
-        f"- PDF Path: {first_value(metadata.get('pdf_path'), 'Not available.')}",
-        f"- PDF Parse Status: {first_value(metadata.get('pdf_parse_status', {}).get('state') if isinstance(metadata.get('pdf_parse_status'), dict) else None, 'Not available.')}",
-        f"- Landing Page: {first_value(metadata.get('landing_page'), 'Not available.')}",
-        f"- Sources: {source_summary}",
+        f"- 论文 ID: {first_value(metadata.get('paper_id'), '暂无信息。')}",
+        f"- 发表时间: {first_value(metadata.get('published_at'), '暂无信息。')}",
+        f"- 会议或期刊: {first_value(metadata.get('venue'), '暂无信息。')}",
+        f"- DOI: {first_value(metadata.get('doi'), '暂无信息。')}",
+        f"- arXiv ID: {first_value(metadata.get('arxiv_id'), '暂无信息。')}",
+        f"- 引用次数: {first_value(metadata.get('citation_count'), '暂无信息。')}",
+        f"- PDF 路径: {first_value(metadata.get('pdf_path'), '暂无信息。')}",
+        f"- PDF 解析状态: {first_value(metadata.get('pdf_parse_status', {}).get('state') if isinstance(metadata.get('pdf_parse_status'), dict) else None, '暂无信息。')}",
+        f"- 详情页: {first_value(metadata.get('landing_page'), '暂无信息。')}",
+        f"- 来源: {source_summary}",
     ]
 
 
 def render_report(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
-    title = first_value(metadata.get("title"), "Untitled Paper")
+    title = first_value(analysis.get("title_zh"), metadata.get("title_zh"), metadata.get("title"), "未命名论文")
 
     sections = [
-        ("## Paper Snapshot", "\n".join(build_snapshot(metadata))),
+        ("## 论文概览", "\n".join(build_snapshot(metadata))),
         ("## 作者与合作亮点", format_authors(metadata, analysis)),
         ("## 英文摘要原文", render_block(metadata.get("abstract_en"))),
         (

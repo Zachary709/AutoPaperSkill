@@ -57,6 +57,9 @@ Rules:
 - If you use a fallback source, mark `is_official: false`.
 - For every year, keep the landing page you used in `metadata_sources`.
 - Do not claim that a venue page is official unless the domain or page ownership clearly supports it.
+- If the venue uses OpenReview and OpenReview exposes a PDF or official attachment, use that OpenReview resource for PDF download before considering arXiv.
+- If the first OpenReview PDF request fails, continue troubleshooting the OpenReview route first.
+- Do not silently substitute an arXiv PDF when an OpenReview PDF exists. If retrieval remains blocked, state that explicitly.
 
 ## Specific Paper Mode
 
@@ -66,6 +69,14 @@ Preferred resolution order:
 2. arXiv ID
 3. exact title
 4. fuzzy title
+
+PDF retrieval rule:
+
+1. OpenReview PDF or attachment when available
+2. publisher or official proceedings PDF
+3. arXiv PDF only when no OpenReview or other official PDF is available
+
+If OpenReview has a PDF resource, do not downgrade to arXiv merely because the first OpenReview attempt failed.
 
 If a title-only query yields multiple plausible matches:
 

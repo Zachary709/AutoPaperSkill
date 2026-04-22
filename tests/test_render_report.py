@@ -62,6 +62,8 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn("## 英文摘要原文", report)
         self.assertIn("## 中文摘要", report)
         self.assertIn("## 一句话概括", report)
+        self.assertIn("## 论文概览", report)
+        self.assertIn("- 论文 ID: title-123", report)
         self.assertIn("## 关键图解读", report)
         self.assertIn("## 关键表解读", report)
         self.assertIn("## 关键公式与变量说明", report)

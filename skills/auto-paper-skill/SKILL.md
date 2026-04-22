@@ -96,6 +96,9 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
 3. Retrieve and save the PDF before any deep analysis or final report generation.
    - If the request is only paper discovery, you may stop before downloading PDFs.
    - If the request includes analysis, report generation, figure usage, formula usage, or method detail, a local PDF is mandatory.
+   - If OpenReview provides a PDF or attachment for the paper, treat OpenReview as the required PDF source.
+   - Do not switch to arXiv just because the first OpenReview download attempt failed. Retry and troubleshoot the OpenReview path first.
+   - If OpenReview has the paper resource but the PDF still cannot be retrieved after reasonable troubleshooting, report the block explicitly instead of silently substituting an arXiv PDF.
 4. Normalize each paper into the schema in `references/metadata-schema.md`.
 5. Compute `paper_id` using `doi > arXiv ID > title hash`.
 6. Deduplicate against the local library and within the current result set.
@@ -178,6 +181,8 @@ If the PDF cannot be retrieved, you may still save `metadata.json` for discovery
 
 The final report must follow the section order in `references/report-template.md`.
 
+Default output language for the final report is Chinese.
+
 At minimum, the report must contain:
 
 - paper snapshot
@@ -212,7 +217,14 @@ Core analytical sections must be evidence-grounded. Bind claims to at least one 
 
 Do not write generic statements like `the method is effective` or `the experiments are comprehensive` without concrete evidence from the PDF.
 
-When information is missing, keep the section and write `Not available.` instead of deleting it.
+Language rules for the final report:
+
+- keep the report narrative, bullet points, and explanations in Chinese
+- keep `## 英文摘要原文` in the source language for fidelity
+- keep formula expressions in their original mathematical form, but explain them in Chinese
+- if a figure caption, table caption, or quoted evidence is originally English, translate or paraphrase it into Chinese in the report unless the original wording is necessary
+
+When information is missing, keep the section and write `暂无信息。` instead of deleting it.
 
 ## Guardrails
 
@@ -226,6 +238,8 @@ When information is missing, keep the section and write `Not available.` instead
 - Prefer `PyMuPDF + pdfplumber` for local deterministic PDF parsing in this skill because it avoids model-download dependencies in restricted environments.
 - If figure or table images cannot be extracted, still keep caption-level evidence and explain that the visual asset was unavailable.
 - Keep formula explanations concrete: name symbols, explain the objective or update rule, and say how the formula affects training, inference, or proof.
+- If OpenReview exposes a PDF resource, prefer that PDF over arXiv for local saving and downstream analysis.
+- Do not silently replace an OpenReview PDF with an arXiv PDF. Surface the failure and the attempted recovery steps.
 
 ## Helper Scripts
 

@@ -27,7 +27,10 @@ def detect_caption(line: str) -> tuple[str, str, str] | None:
         return None
     kind = match.group(1)
     number = (match.group(2) or "").strip()
-    label = f"{kind} {number}".strip()
+    if kind.lower().startswith("table"):
+        label = f"表 {number}".strip()
+    else:
+        label = f"图 {number}".strip()
     caption = (match.group(3) or "").strip() or line.strip()
     visual_type = "table" if kind.lower().startswith("table") else "figure"
     return label, caption, visual_type
@@ -47,13 +50,13 @@ def summarize_equation(line: str) -> dict[str, str]:
     symbol_explanations: dict[str, str] = {}
     lowered = line.lower()
     if "lambda" in lowered:
-        symbol_explanations["lambda"] = "regularization weight or trade-off coefficient"
+        symbol_explanations["lambda"] = "正则化权重或权衡系数"
     if "theta" in lowered:
-        symbol_explanations["theta"] = "model parameter"
+        symbol_explanations["theta"] = "模型参数"
     if "w" in line:
-        symbol_explanations["W"] = "weight or parameter matrix"
+        symbol_explanations["W"] = "权重或参数矩阵"
     if "b" in line:
-        symbol_explanations["b"] = "bias term"
+        symbol_explanations["b"] = "偏置项"
     return symbol_explanations
 
 
@@ -114,8 +117,8 @@ def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
                         "page": page_index + 1,
                         "context": "Extracted from PDF text",
                         "symbol_explanations": summarize_equation(line),
-                        "method_role": "Equation-like expression detected from the PDF body.",
-                        "derivation_summary": "Needs manual confirmation if the paper uses non-standard notation.",
+                        "method_role": "从 PDF 正文中检测到的公式型表达。",
+                        "derivation_summary": "如果论文使用了非常规记号，需要人工确认其精确含义。",
                     }
                 )
 
@@ -128,7 +131,7 @@ def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
                         "statement_summary": line,
                         "assumptions": [],
                         "proof_summary": line,
-                        "importance": "Potential theoretical evidence extracted from the PDF.",
+                        "importance": "从 PDF 中提取到的潜在理论证据。",
                     }
                 )
 
@@ -137,12 +140,12 @@ def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
         for (_, _), asset_path in image_assets.items():
             figures.append(
                 {
-                    "label": f"Figure asset {len(figures) + 1}",
-                    "caption": "Embedded image extracted from PDF without a nearby caption.",
+                    "label": f"图像资源 {len(figures) + 1}",
+                    "caption": "从 PDF 中提取到嵌入图像，但附近没有识别到标题说明。",
                     "page": None,
                     "asset_path": asset_path,
                     "visual_type": "figure",
-                    "evidence_summary": "Visual asset extracted without caption text.",
+                    "evidence_summary": "提取到了图像资源，但没有匹配到相邻标题说明。",
                     "linked_sections": ["method_flow"],
                 }
             )
@@ -158,16 +161,16 @@ def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
                 table_counts.append(0)
 
     notes = [
-        "Parser: PyMuPDF + pdfplumber",
-        "Caption and equation extraction are heuristic and should be validated for difficult PDFs.",
+        "解析器: PyMuPDF + pdfplumber",
+        "图表标题和公式提取采用启发式规则，遇到复杂 PDF 时应人工复核。",
     ]
     if sum(table_counts) == 0:
-        notes.append("No structured tables extracted by pdfplumber; caption-level table evidence may still be present.")
+        notes.append("pdfplumber 没有提取到结构化表格，但仍可能保留了表格标题级证据。")
 
     return {
         "pdf_path": str(pdf_path.resolve()),
         "pdf_parse_status": {
-            "state": "parsed",
+            "state": "已解析",
             "parser": "pymupdf+pdfplumber",
             "page_count": len(table_counts),
             "notes": notes,

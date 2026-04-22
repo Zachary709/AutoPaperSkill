@@ -32,13 +32,13 @@ class PdfAnalyzerTests(unittest.TestCase):
 
             payload = pdf_analyzer.analyze_pdf(pdf_path, images_dir)
 
-            self.assertEqual(payload["pdf_parse_status"]["state"], "parsed")
+            self.assertEqual(payload["pdf_parse_status"]["state"], "已解析")
             self.assertTrue(payload["figures"])
             self.assertTrue(payload["tables"])
             self.assertTrue(payload["equations"])
             self.assertTrue(payload["theoretical_items"])
-            self.assertEqual(payload["figures"][0]["label"], "Figure 1")
-            self.assertEqual(payload["tables"][0]["label"], "Table 1")
+            self.assertEqual(payload["figures"][0]["label"], "图 1")
+            self.assertEqual(payload["tables"][0]["label"], "表 1")
 
 
 if __name__ == "__main__":
