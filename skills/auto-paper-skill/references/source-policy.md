@@ -10,6 +10,8 @@ Default search order:
 2. Semantic Scholar for citations and author-level impact signals
 3. Additional MCP or web sources only when they improve coverage materially
 
+Codex performs these lookups through conversation-available web, search, MCP, or browser tools. Do not delegate external source access to bundled scripts.
+
 Default workflow:
 
 1. Build a candidate pool larger than the final shortlist.
@@ -78,6 +80,26 @@ PDF retrieval rule:
 
 If OpenReview has a PDF resource, do not downgrade to arXiv merely because the first OpenReview attempt failed.
 
+Metadata enrichment rule:
+
+1. Use OpenReview for official paper page, venue notes, and required PDF when available.
+2. Continue with Semantic Scholar for paper citation count, author affiliations, author citation counts, h-index, and author IDs when available.
+3. Continue with Crossref for DOI, publication date, publisher venue, and landing page when available.
+4. Continue with arXiv for arXiv ID, preprint date, abstract, and PDF alternatives only when OpenReview/official PDF is not available.
+5. Record every checked source in `metadata_sources` and summarize missing important fields in `metadata_enrichment_status`.
+
+OpenReview priority is a PDF-source rule, not a reason to stop DOI, arXiv, citation, or author-impact enrichment.
+
+## External Access Boundary
+
+External source access belongs to Codex, not helper scripts.
+
+- Codex may use available web/search/MCP/browser tools to inspect OpenReview, Semantic Scholar, Crossref, arXiv, official venue pages, publisher pages, or other reliable indexes.
+- Do not add or run bundled scripts whose job is to call external paper APIs or scrape external sites.
+- After Codex retrieves source evidence, it may save the relevant JSON payload, page facts, or normalized excerpt locally.
+- `scripts/metadata_enricher.py` may merge those local payloads deterministically, but it must not be treated as a network fetcher.
+- Record every checked source in `metadata_sources`, including the source URL, retrieved date when available, fields used, and whether the source was official.
+
 If a title-only query yields multiple plausible matches:
 
 - show the best 2-5 candidates
@@ -113,6 +135,8 @@ When reporting a high-impact coauthor, include:
 - affiliation when known
 - metric used
 - evidence source
+
+Do not infer a corresponding author from author order. Use explicit source evidence, or report that the corresponding author was not reliably identified.
 
 ## Attribution Rules
 

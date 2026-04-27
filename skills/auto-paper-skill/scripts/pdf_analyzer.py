@@ -10,11 +10,18 @@ from pathlib import Path
 from typing import Any
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+MATH_SIGNAL_RE = re.compile(
+    r"(=|≤|≥|∑|∏|√|±|×|÷|∫|\\sum|\\frac|\\argmax|\\argmin|\bE\[|\blog\b|\bexp\b|\bp\(|\bScore\()"
+)
 CAPTION_RE = re.compile(
     r"^(Figure|Fig\.?|Table|图|表)\s*([A-Za-z0-9.\-一二三四五六七八九十]+)?[:.\s-]*(.*)$",
     re.IGNORECASE,
 )
 THEORY_RE = re.compile(r"\b(theorem|lemma|proposition|corollary|proof)\b", re.IGNORECASE)
+UNSAFE_MATH_RE = re.compile(
+    r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
+    re.IGNORECASE,
+)
 
 
 def contains_cjk(text: str) -> bool:
@@ -39,28 +46,17 @@ def detect_caption(line: str) -> tuple[str, str, str, str] | None:
 
 
 def is_equation_like(line: str) -> bool:
-    if len(line) < 6:
+    text = " ".join(line.split())
+    if len(text) < 6 or not MATH_SIGNAL_RE.search(text):
         return False
-    score = 0
-    for token in (
-        "=",
-        "+",
-        "-",
-        "*",
-        "/",
-        "sum",
-        "lambda",
-        "sigma",
-        "theta",
-        "alpha",
-        "beta",
-        "gamma",
-        "nabla",
-        "||",
-    ):
-        if token in line:
-            score += 1
-    return score >= 2 or ("=" in line and any(ch.isdigit() for ch in line))
+    word_count = len(re.findall(r"[A-Za-z]{3,}", text))
+    if len(text) > 180 and word_count > 20:
+        return False
+    if text.count(".") >= 2 and word_count > 10:
+        return False
+    math_chars = len(re.findall(r"[=+\-*/≤≥∑∏√±×÷∫(){}[\]_^|]", text))
+    density = math_chars / max(len(text), 1)
+    return density >= 0.06 or bool(re.search(r"\b[a-zA-Z]\s*=\s*[^,.;]+", text))
 
 
 def summarize_equation(line: str) -> dict[str, str]:
@@ -75,6 +71,106 @@ def summarize_equation(line: str) -> dict[str, str]:
     if "b" in line:
         symbol_explanations["b"] = "偏置项"
     return symbol_explanations
+
+
+def strip_math_delimiters(expression: str) -> str:
+    text = expression.strip()
+    delimiter_pairs = ((r"\[", r"\]"), ("$$", "$$"), ("$", "$"))
+    changed = True
+    while changed:
+        changed = False
+        for left, right in delimiter_pairs:
+            if text.startswith(left) and text.endswith(right) and len(text) > len(left) + len(right):
+                text = text[len(left) : -len(right)].strip()
+                changed = True
+    return text
+
+
+def braces_are_balanced(expression: str) -> bool:
+    depth = 0
+    escaped = False
+    for char in expression:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def raw_to_latex_expression(raw_expression: str) -> str | None:
+    text = strip_math_delimiters(raw_expression)
+    if not text or len(text) > 1200 or "%" in text or UNSAFE_MATH_RE.search(text):
+        return None
+    replacements = {
+        "≤": r"\le ",
+        "≥": r"\ge ",
+        "≠": r"\ne ",
+        "∑": r"\sum ",
+        "∏": r"\prod ",
+        "√": r"\sqrt{}",
+        "×": r"\times ",
+        "÷": r"\div ",
+        "±": r"\pm ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"(?<!\\)\bsum(?=\s*[_^{])", r"\\sum", text)
+    text = re.sub(r"(?<!\\)\bsum\b", r"\\sum", text)
+    text = re.sub(r"(?<!\\)\bprod(?=\s*[_^{])", r"\\prod", text)
+    text = re.sub(r"(?<!\\)\bprod\b", r"\\prod", text)
+    text = re.sub(r"\barg\s*max\b", r"\\operatorname*{arg\,max}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\barg\s*min\b", r"\\operatorname*{arg\,min}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bSmoothL1\b", r"\\operatorname{SmoothL1}", text)
+    text = re.sub(r"\bCrossEntropy\b", r"\\operatorname{CrossEntropy}", text)
+    text = re.sub(r"\bSSC\b", r"\\operatorname{SSC}", text)
+    text = re.sub(r"\bScore\b", r"\\operatorname{Score}", text)
+    text = re.sub(r"(?<!\\)_theta\b", r"_\\theta", text)
+    text = re.sub(r"(?<!\\)_lambda\b", r"_\\lambda", text)
+    text = re.sub(r"(?<!\\)_gamma\b", r"_\\gamma", text)
+    text = re.sub(r"(?<!\\)_tau\b", r"_\\tau", text)
+    text = re.sub(r"([A-Za-z])_([A-Za-z]{2,})\b", r"\1_{\\mathrm{\2}}", text)
+    for greek in ("alpha", "beta", "gamma", "lambda", "theta", "tau", "omega", "mu", "eta"):
+        text = re.sub(rf"(?<!\\)\b{greek}\b", rf"\\{greek}", text)
+    return text if braces_are_balanced(text) else None
+
+
+def equation_importance_score(item: dict[str, Any]) -> int:
+    text = str(item.get("raw_expression") or "")
+    lowered = text.lower()
+    if any(token in lowered for token in ("years old", "the answer is", "alex is", "amy is", "jake is")):
+        return -10
+
+    score = 0
+    for token in ("ssc", "arg max", "argmax", "smoothl1", "crossentropy", "score", "soft", "confidence"):
+        if token in lowered:
+            score += 4
+    for token in ("∑", "\\sum", "sum", "τ", "gamma", "lambda", "p(", "max", "min"):
+        if token in lowered:
+            score += 2
+    score += min(len(re.findall(r"[=≤≥∑∏{}()_^]", text)), 8)
+    if 25 <= len(text) <= 220:
+        score += 2
+    if len(text) > 320:
+        score -= 3
+    return score
+
+
+def select_key_equations(equations: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
+    ranked = [
+        (equation_importance_score(item), index, item)
+        for index, item in enumerate(equations)
+        if equation_importance_score(item) > 0
+    ]
+    ranked.sort(key=lambda row: (-row[0], row[1]))
+    return [item for _, _, item in ranked[:limit]]
 
 
 def normalize_docling_label(label: Any) -> str:
@@ -274,11 +370,13 @@ def extract_docling_textual_evidence(document: Any) -> tuple[list[dict[str, Any]
         label_text = normalize_docling_label(getattr(text_item, "label", None))
 
         if "formula" in label_text or is_equation_like(text):
+            latex_expression = raw_to_latex_expression(text)
             equations.append(
                 {
                     "label": f"公式 {len(equations) + 1}",
                     "label_zh": f"公式 {len(equations) + 1}",
                     "raw_expression": text,
+                    "latex_expression": latex_expression,
                     "page": page_no,
                     "context": "从 Docling 结构化文本中提取",
                     "symbol_explanations": summarize_equation(text),
@@ -309,12 +407,63 @@ def extract_docling_textual_evidence(document: Any) -> tuple[list[dict[str, Any]
     return equations, theory_items
 
 
+def export_document_markdown(document: Any) -> str:
+    export_method = getattr(document, "export_to_markdown", None)
+    if not callable(export_method):
+        return ""
+    try:
+        return str(export_method() or "").strip()
+    except Exception:
+        return ""
+
+
+def export_document_text(document: Any) -> str:
+    export_method = getattr(document, "export_to_text", None)
+    if callable(export_method):
+        try:
+            text = str(export_method() or "").strip()
+            if text:
+                return text
+        except Exception:
+            pass
+    return "\n\n".join(item_text(item) for item in getattr(document, "texts", []) if item_text(item))
+
+
+def extract_markdown_sections(markdown: str, *, max_chars_per_section: int = 2400) -> list[dict[str, str]]:
+    sections: list[dict[str, str]] = []
+    current_title = "正文"
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_lines
+        body = "\n".join(current_lines).strip()
+        if body:
+            sections.append({"title": current_title, "text": body[:max_chars_per_section]})
+        current_lines = []
+
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        heading = re.match(r"^(#{1,4})\s+(.+)$", line)
+        if heading:
+            flush()
+            current_title = heading.group(2).strip()
+            continue
+        if line:
+            current_lines.append(line)
+    flush()
+    return sections
+
+
 def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
     conversion, picture_cls, table_cls = convert_with_docling(pdf_path)
     document = conversion.document
 
     figures, tables = extract_docling_visuals(document, picture_cls, table_cls, images_dir)
     equations, theory_items = extract_docling_textual_evidence(document)
+    key_equations = select_key_equations(equations)
+    document_markdown = export_document_markdown(document)
+    document_text = export_document_text(document)
+    text_sections = extract_markdown_sections(document_markdown)
 
     notes = [
         "解析器: Docling 标准 PDF pipeline",
@@ -342,14 +491,17 @@ def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]
         "tables": tables,
         "equations": equations,
         "theoretical_items": theory_items,
+        "document_text": document_text[:60000],
+        "document_markdown": document_markdown[:60000],
+        "text_sections": text_sections,
         "method_evidence": [f"{item['label']}: {item['evidence_summary_zh']}" for item in figures[:3]]
-        + [f"{item['label']}: {item['raw_expression']}" for item in equations[:2]],
+        + [f"{item['label']}: {item['raw_expression']}" for item in key_equations[:2]],
         "result_evidence": [f"{item['label']}: {item['evidence_summary_zh']}" for item in tables[:3]],
         "proof_explanations": [item["proof_summary_zh"] for item in theory_items[:3]],
         "key_figures": figures[:5],
         "key_tables": tables[:5],
-        "key_equations": equations[:5],
-        "derivation_explanations": [item["derivation_summary_zh"] for item in equations[:3]],
+        "key_equations": key_equations,
+        "derivation_explanations": [item["derivation_summary_zh"] for item in key_equations[:3]],
     }
 
 def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:

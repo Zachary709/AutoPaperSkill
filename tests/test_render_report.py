@@ -26,6 +26,7 @@ class RenderReportTests(unittest.TestCase):
                 "paper_id": "title-123",
                 "abstract_en": "Original abstract.",
                 "authors": [{"name": "Alice", "affiliation": "Example University"}],
+                "first_author": {"name": "Alice", "affiliation": "Example University"},
                 "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
             }
             analysis = {
@@ -52,8 +53,36 @@ class RenderReportTests(unittest.TestCase):
                     {
                         "label": "公式 1",
                         "raw_expression": "L = x + y",
+                        "latex_expression": "L = x + y",
                         "symbol_explanations": {"x": "输入", "y": "目标"},
-                        "method_role": "目标函数",
+                        "method_role_zh": "目标函数",
+                    }
+                ],
+                "narrative_sections": [
+                    {
+                        "title_zh": "主线一：先说明问题，再给出核心机制",
+                        "blocks": [
+                            {
+                                "type": "paragraph",
+                                "text_zh": "这部分先解释为什么需要一个新方法：旧流程把两个决策拆开处理，导致中间表示和最终输出之间缺少一致约束。",
+                            },
+                            {
+                                "type": "evidence",
+                                "evidence_id": "图 1",
+                                "lead_in_zh": "图 1 中，输入先进入第一阶段处理，再由第二阶段把中间表示转成最终输出。",
+                                "takeaway_zh": "这条两阶段路径说明方法的核心不是单个模块，而是前后两个决策如何连续约束输出。",
+                            },
+                            {
+                                "type": "paragraph",
+                                "text_zh": "看完图之后，再解释公式如何把目标函数讲清楚。",
+                            },
+                            {
+                                "type": "evidence",
+                                "evidence_id": "公式 1",
+                                "lead_in_zh": "公式 1 把训练目标写成输入项和目标项的组合。",
+                                "takeaway_zh": "公式 1 说明输入和目标如何共同决定损失。",
+                            },
+                        ],
                     }
                 ],
                 "derivation_explanations": ["先定义目标函数，再求最优参数。"],
@@ -72,16 +101,22 @@ class RenderReportTests(unittest.TestCase):
             self.assertIn(r"\section{英文摘要原文}", report)
             self.assertIn(r"\section{中文摘要}", report)
             self.assertIn(r"\section{一句话概括}", report)
-            self.assertIn(r"\section{论文概览}", report)
+            self.assertIn(r"\section{论文概览与元数据}", report)
             self.assertIn(r"\item 论文 ID: title-123", report)
-            self.assertIn(r"\section{关键图解读}", report)
+            self.assertIn(r"\section{作者与影响力}", report)
+            self.assertIn(r"\section{主线一：先说明问题，再给出核心机制}", report)
+            self.assertNotIn(r"\section{关键图解读}", report)
+            self.assertNotIn(r"\section{关键表解读}", report)
+            self.assertNotIn(r"\section{关键公式与变量说明}", report)
             self.assertIn(r"\includegraphics", report)
             self.assertIn(str(figure_path.resolve()).replace("\\", "/"), report)
-            self.assertIn(r"\section{关键表解读}", report)
-            self.assertIn(r"\section{关键公式与变量说明}", report)
-            self.assertIn(r"\section{推导过程解释}", report)
-            self.assertIn(r"\section{证明过程解释}", report)
-            self.assertIn(r"\section{可以怎么优化}", report)
+            self.assertIn(r"\begin{equation*}", report)
+            self.assertIn("L = x + y", report)
+            self.assertNotIn(r"\detokenize{L = x + y}", report)
+            self.assertLess(report.index("图 1 中，输入先进入第一阶段处理"), report.index(r"\includegraphics"))
+            self.assertLess(report.index(r"\includegraphics"), report.index("这条两阶段路径说明方法的核心"))
+            self.assertLess(report.index("公式 1 把训练目标写成输入项和目标项的组合"), report.index(r"\begin{equation*}"))
+            self.assertIn(r"\section{价值、局限与可优化方向}", report)
 
     def test_render_report_filters_english_only_analysis_blocks(self) -> None:
         metadata = {
@@ -98,8 +133,73 @@ class RenderReportTests(unittest.TestCase):
 
         report = render_report.render_report(metadata, analysis)
         self.assertNotIn("This is still English only.", report)
-        self.assertIn(r"\section{论文在做什么}", report)
-        self.assertIn("暂无信息。", report)
+        self.assertIn(r"\section{论文主线（待 Codex 撰写）}", report)
+        self.assertIn("不要依赖脚本把 method\\_flow", report)
+
+    def test_render_report_converts_raw_formula_to_math_when_safe(self) -> None:
+        metadata = {
+            "title": "Example Paper",
+            "paper_id": "title-123",
+            "authors": [{"name": "Alice"}],
+            "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+        }
+        analysis = {
+            "abstract_zh": "这是摘要直译。",
+            "summary_one_liner": "一句话概括。",
+            "key_equations": [
+                {
+                    "label": "公式 1",
+                    "raw_expression": "SSC(y)=sum_{i:y_i=y} c_i / sum_{i=1}^{N} c_i",
+                    "method_role_zh": "定义答案组的软自一致性分数。",
+                }
+            ],
+            "narrative_sections": [
+                {
+                    "title_zh": "主线一：公式出现的位置",
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text_zh": "方法依赖软自一致性分数：同一答案组内部的置信度越集中，这个答案越值得保留。",
+                        },
+                        {
+                            "type": "evidence",
+                            "evidence_id": "公式 1",
+                            "takeaway_zh": "这个公式把同一答案的置信度加起来。",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        report = render_report.render_report(metadata, analysis)
+        self.assertIn(r"\begin{equation*}", report)
+        self.assertIn(r"\operatorname{SSC}(y)=\sum_{i:y_i=y}", report)
+        self.assertNotIn(r"\ttfamily", report)
+
+    def test_render_report_rejects_meta_evidence_placement_language(self) -> None:
+        metadata = {
+            "title": "Example Paper",
+            "paper_id": "title-123",
+            "authors": [{"name": "Alice"}],
+            "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+        }
+        analysis = {
+            "abstract_zh": "这是摘要直译。",
+            "narrative_sections": [
+                {
+                    "title_zh": "主线一：错误示例",
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text_zh": "图 2 正好对应这条训练闭环，因此应该放在解释 Self-Calibration 的位置，而不是放到独立图表章节里。",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "meta evidence-placement language"):
+            render_report.render_report(metadata, analysis)
 
 
 

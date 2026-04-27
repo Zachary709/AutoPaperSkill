@@ -15,9 +15,12 @@ The primary interface is dialogue. Use helper scripts only for deterministic loc
 - computing stable paper IDs
 - checking duplicate papers against an existing library
 - writing or merging local metadata bundles
+- merging multi-source metadata and author-impact fields
 - parsing a local PDF into text, figure, table, equation, and proof evidence
-- rendering the final LaTeX report
+- converting a fully authored Codex report draft into LaTeX
 - compiling the LaTeX report into PDF
+
+Do not let scripts write the intellectual content of the report. Codex must read the paper evidence, decide the story line, write the Chinese explanation, and place figures, tables, and formulas at the exact point where they support the explanation.
 
 Read these references before doing the corresponding work:
 
@@ -94,24 +97,43 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
 1. Inspect the local paper library first when a local directory is available.
    - Use `python3 scripts/paper_store.py scan --library-dir <dir> --json` when a structured scan will save time.
 2. Search or resolve papers according to the selected mode.
+   - External lookup is Codex's responsibility. Use conversation-available web, search, MCP, or browser tools to inspect paper sources.
+   - Do not run a helper script whose purpose is to contact OpenReview, Semantic Scholar, Crossref, arXiv, publisher, or venue APIs.
+   - If a source exposes structured data, Codex may save the retrieved payload or a normalized excerpt locally for later deterministic merging.
 3. Retrieve and save the PDF before any deep analysis or final report generation.
    - If the request is only paper discovery, you may stop before downloading PDFs.
    - If the request includes analysis, report generation, figure usage, formula usage, or method detail, a local PDF is mandatory.
    - If OpenReview provides a PDF or attachment for the paper, treat OpenReview as the required PDF source.
    - Do not switch to arXiv just because the first OpenReview download attempt failed. Retry and troubleshoot the OpenReview path first.
    - If OpenReview has the paper resource but the PDF still cannot be retrieved after reasonable troubleshooting, report the block explicitly instead of silently substituting an arXiv PDF.
-4. Normalize each paper into the schema in `references/metadata-schema.md`.
-5. Compute `paper_id` using `doi > arXiv ID > title hash`.
-6. Deduplicate against the local library and within the current result set.
+4. Continue metadata enrichment after PDF retrieval, even when the PDF came from OpenReview.
+   - Treat OpenReview as the required PDF source when it provides a PDF, but not as the only metadata source.
+   - Codex should query or inspect Semantic Scholar for citation counts and author-level citation/h-index/affiliation signals when available.
+   - Codex should query or inspect Crossref and arXiv when DOI, arXiv ID, publication date, venue, or landing-page fields remain missing.
+   - Use `python3 scripts/metadata_enricher.py --base <metadata> --source openreview=<json> --source semantic_scholar=<json> --source crossref=<json> --source arxiv=<json> --output <metadata>` only after Codex has already collected those local JSON payloads or normalized excerpts.
+   - Do not use scripts for external metadata fetching; scripts may only merge, validate, or render local files.
+   - If a field is still unavailable, record it in `metadata_enrichment_status` instead of leaving the absence implicit.
+5. Normalize each paper into the schema in `references/metadata-schema.md`.
+6. Compute `paper_id` using `doi > arXiv ID > title hash`.
+7. Deduplicate against the local library and within the current result set.
    - Use `python3 scripts/paper_store.py match --library-dir <dir> --metadata-file <file> --json` when you need a deterministic duplicate decision.
-7. Show candidate papers before saving unless the user explicitly asked for direct save.
-8. Save accepted papers into the target directory.
+8. Show candidate papers before saving unless the user explicitly asked for direct save.
+9. Save accepted papers into the target directory.
    - Use `python3 scripts/paper_store.py upsert --library-dir <dir> --metadata-file <file> [--pdf-source <path>] [--report-file <path>] --json` when local writing needs to be stable.
-9. Parse the local PDF into structured evidence before analysis.
+10. Parse the local PDF into structured evidence before analysis.
    - Use `python3 scripts/pdf_analyzer.py --pdf <path> --output-json <path> --images-dir <dir>` when deterministic PDF parsing is useful.
-10. Generate the final LaTeX report.
-   - Use `python3 scripts/render_report.py --metadata-file <file> --analysis-file <file> --output <path> --pdf-output <path>` when deterministic report rendering is useful.
-11. Save the compiled PDF report alongside the LaTeX report.
+11. Codex writes the report content before any report-rendering script is used.
+   - First read the Docling `document_text`, `document_markdown`, `text_sections`, figure/table captions, extracted images, equations, and proof items.
+   - Inspect important extracted images when the visual content matters; do not rely only on captions.
+   - Decide the paper's narrative spine: what problem creates the need for the method, what idea resolves the problem, how the method is built, why the equations are needed, how experiments test the claims, and what the results actually show.
+   - Write substantive Chinese narrative paragraphs in `analysis.narrative_sections`.
+   - Use `narrative_sections[].blocks` to interleave paragraphs and evidence in reading order: explain the idea, place the relevant figure/table/formula immediately, then state the takeaway.
+   - The prose around evidence must describe the paper content itself, not the report layout. Avoid sentences like `图 2 正好对应这条训练闭环，因此应该放在这里` or `下面展示公式 1`.
+   - Before an evidence block, write what the figure/table/formula concretely contains. After it, write what the observed structure, number, or derivation changes in the current argument.
+   - Do not ask `render_report.py` to infer a story from `method_flow`, `key_figures`, `key_tables`, or `key_equations`.
+12. Render the authored report draft.
+   - Use `python3 scripts/render_report.py --metadata-file <file> --analysis-file <file> --output <path> --pdf-output <path>` only after `analysis.narrative_sections` has been written by Codex.
+13. Save the compiled PDF report alongside the LaTeX report.
    - Use `python3 scripts/render_report_pdf.py --tex-file <path> --output <path>` when you already have `report.tex` and need `report.pdf`.
 
 ## Source Policy
@@ -190,26 +212,44 @@ Default output language for the final report is Chinese.
 At minimum, the report must contain:
 
 - paper snapshot
-- author and collaboration highlights
+- author and influence analysis
 - English abstract
 - Chinese abstract
 - one-line summary
-- what the paper is doing
-- method or flow
-- full experiment pipeline
-- most important experimental points
-- results
-- value
-- limitations
-- optimization ideas
+- a narrative explanation of the paper's main line
+- problem, method, experiment, result, theory, value, limitation, and optimization content
 
 For deep analysis, the report must also contain:
 
-- key figure interpretation
-- key table interpretation
-- key equations with variable and role explanations
+- key figures and tables inserted into the narrative where they support the method, experiment, or result
+- key equations rendered as compiled LaTeX math, with variable and role explanations
 - derivation explanation when the method depends on non-trivial formulas
 - proof explanation when the paper includes theorem, lemma, proposition, or proof structure
+
+Do not make `key figure`, `key table`, and `key formula` isolated report sections by default. Use them as evidence blocks embedded at the point in the story where they help explain the paper.
+
+The report should read like an explanation by a careful researcher:
+
+- start from the real tension or question the paper is solving, not from a list of modules
+- introduce each method component only when the previous problem makes that component necessary
+- when a figure/table/formula matters, insert it immediately after the paragraph that needs it
+- write the surrounding prose as content-level explanation, not placement instructions
+- after evidence, explain what the visible structure, concrete number, formula term, or proof step changes in the current reasoning
+- keep sections substantial enough to carry the logic; avoid one short paragraph followed by a pile of assets
+- use tables for concrete comparisons and numbers, not as detached appendices
+- use formulas to explain the mechanism, objective, inference rule, or proof step at the point where that math becomes necessary
+
+Bad evidence prose:
+
+- `图 2 正好对应这条训练闭环，因此应该放在解释 Self-Calibration 的位置，而不是放到独立图表章节里。`
+- `讲到训练目标时立刻展示公式 1。`
+- `读这张图时重点看输入、核心模块和输出。`
+
+Better evidence prose:
+
+- `图 2 中，多响应采样先产生候选答案，置信度打分随后被同答案分组吸收，最终形成 Self-Calibration 的软监督闭环。`
+- `公式 1 把同一答案组的置信度累加为软自一致性分数，所以推理阶段比较的是答案组的总体可信度，而不是单条响应的自评。`
+- `表 3 的消融数字显示，去掉校准后准确率下降，说明 CaTS 的收益不只来自多采样预算。`
 
 Core analytical sections must be evidence-grounded. Bind claims to at least one concrete anchor whenever possible:
 
@@ -227,6 +267,7 @@ Language rules for the final report:
 - keep `## 英文摘要原文` in the source language for fidelity
 - make `## 中文摘要` a faithful direct translation of `## 英文摘要原文`
 - keep formula expressions in their original mathematical form, but explain them in Chinese
+- provide `latex_expression` for key formulas when possible so the PDF compiles formulas as math instead of showing raw source text
 - if a figure caption, table caption, or quoted evidence is originally English, translate or paraphrase it into Chinese in the report unless the original wording is necessary
 
 When information is missing, keep the section and write `暂无信息。` instead of deleting it.
@@ -238,6 +279,8 @@ When information is missing, keep the section and write `暂无信息。` instea
 - Keep claims about author prestige tied to explicit evidence.
 - Keep `metadata.json` UTF-8 and machine-readable.
 - Prefer structured intermediate data before writing `report.tex`.
+- Prefer Codex-authored narrative sections before rendering; scripts should not decide the narrative.
+- Keep external paper lookup in Codex. Bundled scripts must not contact external paper services; they may process only local PDFs, local metadata files, and Codex-collected source payloads.
 - If the user only wants discovery, do not save files unless they ask.
 - Do not produce a formal deep-analysis report without a local PDF.
 - Prefer the standard local `Docling` PDF pipeline as the primary parser in this skill because it can directly recover structured figures, tables, formulas, and reading-order text from the PDF without enabling VLM features.
@@ -247,6 +290,8 @@ When information is missing, keep the section and write `暂无信息。` instea
 - Keep formula explanations concrete: name symbols, explain the objective or update rule, and say how the formula affects training, inference, or proof.
 - If OpenReview exposes a PDF resource, prefer that PDF over arXiv for local saving and downstream analysis.
 - Do not silently replace an OpenReview PDF with an arXiv PDF. Surface the failure and the attempted recovery steps.
+- Do not stop metadata enrichment just because OpenReview was used for the PDF. Continue trying DOI, arXiv, Semantic Scholar, and Crossref-style metadata sources and record the enrichment status.
+- Do not guess corresponding authors. Use explicit paper/source evidence, or write that the corresponding author was not reliably identified.
 
 ## Helper Scripts
 
@@ -265,9 +310,29 @@ Supported operations:
 Use this when you already have:
 
 - a `metadata.json` file that follows `references/metadata-schema.md`
-- a structured analysis JSON payload
+- a structured analysis JSON payload with Codex-authored `narrative_sections`
 
-The script renders a stable LaTeX report with the exact section order expected by this skill.
+The script renders a stable LaTeX report from Codex-authored content.
+
+Use it only after `analysis.narrative_sections` is present. The script can place evidence blocks and compile formulas, but it must not be treated as the author of the report. If `narrative_sections` is missing, the script writes an explicit placeholder rather than fabricating the main analysis from legacy fields.
+
+The script rejects obvious meta evidence-placement language in `narrative_sections`, such as `应该放在这里`, `下面展示`, `正好对应`, or `独立图表章节`. If this happens, rewrite the narrative so the figure/table/formula content itself carries the argument.
+
+### `scripts/metadata_enricher.py`
+
+Use this when you have one or more source payloads and need deterministic metadata merging.
+
+This script does not fetch external sources. Codex must collect OpenReview, Semantic Scholar, Crossref, arXiv, venue, or publisher evidence through conversation-available tools first, then pass saved local payloads or normalized excerpts into this script.
+
+Supported source names:
+
+- `openreview`
+- `semantic_scholar`
+- `crossref`
+- `arxiv`
+- normalized custom JSON
+
+The script fills missing DOI/arXiv/citation/author-impact fields, preserves `metadata_sources`, records conflicts, marks high-impact authors only with numeric evidence, and writes explicit `metadata_enrichment_status`.
 
 ### `scripts/render_report_pdf.py`
 
@@ -282,6 +347,7 @@ Use this when you have a local PDF and need deterministic evidence extraction fo
 - structured figures and tables exported by Docling
 - figure and table captions
 - formula-like text and proof-related paragraphs from structured reading-order output
+- Docling Markdown/text exports and section snippets for detailed analysis
 
 This script uses the standard local Docling PDF pipeline as the required parser for deep analysis. If Docling parsing fails, the script should error out rather than silently using a different parser.
 

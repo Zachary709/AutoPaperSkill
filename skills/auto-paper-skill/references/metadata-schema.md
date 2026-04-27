@@ -17,8 +17,35 @@ Use this schema for every saved `metadata.json`.
       "citation_count": 1234,
       "h_index": 22,
       "is_high_impact": false,
+      "is_corresponding": false,
+      "semantic_scholar_author_id": "123456",
       "evidence_source": "Semantic Scholar"
     }
+  ],
+  "first_author": {
+    "name": "Author Name",
+    "affiliation": "Example University",
+    "citation_count": 1234,
+    "h_index": 22,
+    "evidence_source": "Semantic Scholar"
+  },
+  "last_author": {
+    "name": "Senior Author",
+    "affiliation": "Example Lab",
+    "citation_count": 45678,
+    "h_index": 81,
+    "evidence_source": "Semantic Scholar"
+  },
+  "corresponding_authors": [
+    {
+      "name": "Corresponding Author",
+      "affiliation": "Example Lab",
+      "evidence_source": "paper front matter"
+    }
+  ],
+  "corresponding_author_status": "未在可用来源中可靠识别，未猜测。",
+  "author_influence_summary": [
+    "Senior Author 的引用或 h-index 达到高影响力阈值，来源: Semantic Scholar。"
   ],
   "published_at": "2024-06-01",
   "venue": "CVPR 2024",
@@ -79,6 +106,7 @@ Use this schema for every saved `metadata.json`.
     {
       "label": "公式 1",
       "raw_expression": "L = sum_i ||W x_i - y_i||_2^2 + lambda ||W||_F^2",
+      "latex_expression": "L = \\sum_i \\lVert W x_i - y_i \\rVert_2^2 + \\lambda \\lVert W \\rVert_F^2",
       "page": 4,
       "context": "训练目标",
       "symbol_explanations": {
@@ -103,12 +131,42 @@ Use this schema for every saved `metadata.json`.
       "importance": "用于支持优化稳定性相关论断。"
     }
   ],
+  "document_text": "Full text exported by Docling, truncated if necessary.",
+  "document_markdown": "Markdown exported by Docling, truncated if necessary.",
+  "text_sections": [
+    {
+      "title": "3 SELF-CALIBRATION",
+      "text": "Section-level text excerpt exported from the PDF."
+    }
+  ],
   "landing_page": "https://example.org/paper",
+  "metadata_enrichment_status": {
+    "sources_checked": [
+      "openreview",
+      "semantic_scholar",
+      "crossref",
+      "arxiv"
+    ],
+    "field_status": {
+      "doi": "found",
+      "arxiv_id": "found",
+      "citation_count": "found",
+      "authors": "found",
+      "first_author": "found",
+      "last_author": "found",
+      "corresponding_authors": "not_found"
+    },
+    "missing_fields": [
+      "corresponding_authors"
+    ],
+    "conflicts": []
+  },
   "metadata_sources": [
     {
       "source_name": "arxiv",
       "source_type": "api",
       "source_url": "https://arxiv.org/abs/2401.01234",
+      "access_method": "codex_web_or_mcp",
       "is_official": true,
       "retrieved_at": "2026-04-21T12:00:00Z",
       "fields": [
@@ -140,6 +198,11 @@ Use this schema for every saved `metadata.json`.
 - `doi`
 - `arxiv_id`
 - `citation_count`
+- `first_author`
+- `last_author`
+- `corresponding_authors`
+- `author_influence_summary`
+- `metadata_enrichment_status`
 - `pdf_path`
 - `report_tex_path`
 - `report_pdf_path`
@@ -159,10 +222,22 @@ Use this schema for every saved `metadata.json`.
   - keep one object per author
   - use `null` for unknown numeric values
   - do not set `is_high_impact: true` without evidence
+- `first_author`, `last_author`, and `corresponding_authors`
+  - fill from source evidence when available
+  - do not infer corresponding authors from author order alone
+  - if corresponding authors are unavailable, set `corresponding_authors: []` and explain in `corresponding_author_status`
+- `author_influence_summary`
+  - summarize only source-backed author impact, affiliations, and notable coauthors
+  - keep it concise and Chinese for direct report rendering
 - `metadata_sources`
   - keep one record per evidence source
   - include `is_official`
+  - include `access_method` when known, such as `codex_web`, `codex_mcp`, `codex_browser`, or `manual_inspection`
   - list the fields that came from that source when possible
+- `metadata_enrichment_status`
+  - record which sources were checked
+  - mark important fields as `found` or `not_found`
+  - preserve conflicts instead of silently overwriting values
 - `indexing_notes`
   - store cautious notes, not unsupported claims
   - example: `Reported in publisher TOC`
@@ -185,10 +260,15 @@ Use this schema for every saved `metadata.json`.
   - keep `crop_status` to distinguish Docling direct exports from caption-only cases without image assets
 - `equations`
   - keep the raw expression text as extracted or lightly normalized
+  - add `latex_expression` when possible so reports compile formulas as math
   - explain symbols only when you have evidence from the paper context
 - `theoretical_items`
   - use for theorem, lemma, proposition, or proof related evidence
   - keep proof summaries concise and evidence-based
+- `document_text`, `document_markdown`, and `text_sections`
+  - use these Docling exports as the primary evidence source when writing the detailed Chinese analysis
+  - do not rely only on figure/table captions or abstract-level metadata
+  - keep generated reports concise by selecting relevant section snippets rather than dumping the full text
 - `abstract_zh`
   - must be a faithful direct translation of `abstract_en`
   - do not use a free-form summary as the Chinese abstract
@@ -201,6 +281,8 @@ Use this schema for every saved `metadata.json`.
   "affiliation": "Example University",
   "citation_count": 1234,
   "h_index": 22,
+  "semantic_scholar_author_id": "123456",
+  "is_corresponding": false,
   "is_high_impact": false,
   "evidence_source": "Semantic Scholar"
 }
@@ -213,6 +295,7 @@ Use this schema for every saved `metadata.json`.
   "source_name": "semantic_scholar",
   "source_type": "api",
   "source_url": "https://api.semanticscholar.org/...",
+  "access_method": "codex_web_or_mcp",
   "is_official": false,
   "retrieved_at": "2026-04-21T12:00:00Z",
   "fields": [
@@ -224,12 +307,53 @@ Use this schema for every saved `metadata.json`.
 
 ## Structured Analysis Input For `render_report.py`
 
-The report renderer expects a second JSON file with analysis fields such as:
+The report renderer expects a second JSON file with Codex-authored analysis fields. `narrative_sections` is required for a real report; helper scripts should not infer the main story from legacy evidence fields.
 
 ```json
 {
   "abstract_zh": "中文摘要",
   "summary_one_liner": "一句话概括",
+  "author_analysis": [
+    "一作来自 Example University，主要研究方向与本文主题一致。",
+    "通讯作者未在可用来源中可靠识别，未猜测。"
+  ],
+  "narrative_sections": [
+    {
+      "title_zh": "主线一：问题为什么存在",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text_zh": "先用完整自然段讲清楚论文要解决的具体矛盾，以及为什么已有方法在这里不够用。"
+        },
+        {
+          "type": "evidence",
+          "evidence_id": "图 1",
+          "lead_in_zh": "图 1 中，输入先经过问题约束模块，再进入核心求解模块，最后输出被评估模块重新校准。",
+          "takeaway_zh": "这条路径把前面提出的矛盾压缩成三个连续决策：先限制搜索空间，再生成候选解，最后用校准信号决定保留哪一个。"
+        },
+        {
+          "type": "paragraph",
+          "text_zh": "沿着这条路径看，方法的关键不是多加一个模块，而是让每一步都消化上一步留下的不确定性。"
+        },
+        {
+          "type": "evidence",
+          "evidence_id": "公式 1",
+          "lead_in_zh": "公式 1 把这种不确定性写进训练目标：数据拟合项约束候选输出，正则项控制参数规模。",
+          "takeaway_zh": "因此，优化过程同时回答两个问题：当前输出是否贴近目标，以及模型是否用过大的参数代价换取表面提升。"
+        }
+      ]
+    }
+  ],
+  "evidence_blocks": [
+    {
+      "id": "method-overview",
+      "type": "figure",
+      "label": "图 1",
+      "caption_zh": "方法总体结构图。",
+      "asset_path": "/abs/path/to/images/figure-1.png",
+      "evidence_summary_zh": "这张图展示方法的两阶段流程。"
+    }
+  ],
   "paper_goal": "这篇论文在做什么",
   "method_flow": [
     "核心步骤 1",
@@ -278,6 +402,7 @@ The report renderer expects a second JSON file with analysis fields such as:
     {
       "label": "公式 1",
       "raw_expression": "L = sum_i ||W x_i - y_i||_2^2 + lambda ||W||_F^2",
+      "latex_expression": "L = \\sum_i \\lVert W x_i - y_i \\rVert_2^2 + \\lambda \\lVert W \\rVert_F^2",
       "symbol_explanations": {
         "W": "参数矩阵",
         "lambda": "正则化权重"
@@ -301,5 +426,16 @@ The report renderer expects a second JSON file with analysis fields such as:
   ]
 }
 ```
+
+`narrative_sections[].blocks` rules:
+
+- Use `paragraph` blocks for Codex-written Chinese explanation.
+- Use `evidence` blocks to insert a figure, table, equation, or proof item exactly where the explanation needs it.
+- Use `lead_in_zh` before evidence to explain the concrete content inside the evidence, not why the evidence is placed there.
+- Use `takeaway_zh` after evidence to explain what the observed structure, number, formula term, or proof step proves or clarifies.
+- Do not put all evidence IDs at the end of a section unless the section is intentionally an appendix.
+- Do not write meta placement language such as `应该放在这里`, `下面展示`, `正好对应`, `独立图表章节`, or `读这张图`.
+
+Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools. They are useful for drafting, but they are not a substitute for a Codex-written narrative.
 
 Use UTF-8 for all files.

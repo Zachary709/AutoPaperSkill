@@ -59,6 +59,11 @@ class FakeDocument:
         self.pages = {1: object()}
         self.texts = [
             FakeTextItem("L = W x + b + lambda", 1, "formula"),
+            FakeTextItem(
+                "This paragraph mentions Best-of-N and Self-Consistency but is not a formula.",
+                1,
+                "paragraph",
+            ),
             FakeTextItem("Proof. We set the gradient to zero and show uniqueness.", 1, "paragraph"),
         ]
         self._items = [
@@ -68,6 +73,12 @@ class FakeDocument:
 
     def iterate_items(self):
         return iter(self._items)
+
+    def export_to_markdown(self) -> str:
+        return "# Abstract\n\nA short abstract.\n\n# 1 Method\n\nThe method section."
+
+    def export_to_text(self) -> str:
+        return "A short abstract.\n\nThe method section."
 
 
 class FakeConversionResult:
@@ -125,7 +136,13 @@ class PdfAnalyzerTests(unittest.TestCase):
             self.assertTrue(payload["figures"])
             self.assertTrue(payload["tables"])
             self.assertTrue(payload["equations"])
+            self.assertEqual(len(payload["equations"]), 1)
+            self.assertEqual(payload["key_equations"][0]["raw_expression"], "L = W x + b + lambda")
+            self.assertEqual(payload["key_equations"][0]["latex_expression"], r"L = W x + b + \lambda")
             self.assertTrue(payload["theoretical_items"])
+            self.assertTrue(payload["document_text"])
+            self.assertTrue(payload["document_markdown"])
+            self.assertEqual(payload["text_sections"][0]["title"], "Abstract")
             self.assertIn("当前未启用 Docling VLM、图片描述或远程模型服务。", payload["pdf_parse_status"]["notes"])
             self.assertEqual(payload["figures"][0]["label"], "图 1")
             self.assertEqual(payload["tables"][0]["label"], "表 1")

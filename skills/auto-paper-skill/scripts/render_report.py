@@ -6,11 +6,29 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+UNSAFE_MATH_RE = re.compile(
+    r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
+    re.IGNORECASE,
+)
+META_EVIDENCE_LANGUAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"应该.{0,8}放[在到进]"), "不要讨论图表公式应该放在哪里，要直接解释它本身承载的论文内容。"),
+    (re.compile(r"而不是.{0,20}(独立|单独|图表|公式|章节|部分)"), "不要写版式安排对比，要把证据自然接入当前论证。"),
+    (re.compile(r"(独立|单独).{0,8}(图表|公式|证据).{0,8}(章节|部分|模块)"), "不要提独立证据章节或模块。"),
+    (re.compile(r"正好对应"), "不要用“正好对应”解释插入原因，要说明图表公式中的具体元素如何推进论证。"),
+    (re.compile(r"讲到.{0,16}(展示|插入|放入|给出)"), "不要写“讲到这里展示”，要把图表公式中的内容写进论述。"),
+    (re.compile(r"(这里|此处|下面|接下来|随后).{0,12}(展示|插入|放入|给出)"), "不要写舞台提示式的证据插入语。"),
+    (re.compile(r"读这(张图|个表|个公式|一公式)"), "不要指导读者读图表公式，要直接解释可观察到的结构、数字或推导作用。"),
+    (re.compile(r"作为.{0,8}(证据块|图表块|公式块)"), "不要暴露报告结构或证据块概念。"),
+)
 SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+if str(SKILL_DIR) not in sys.path:
+    sys.path.insert(0, str(SKILL_DIR))
 TEMPLATE_PATH = SCRIPT_DIR.parent / "assets" / "report-template.tex"
 
 
@@ -47,6 +65,99 @@ def escape_latex(text: str) -> str:
         "^": r"\textasciicircum{}",
     }
     return "".join(replacements.get(char, char) for char in text)
+
+
+def strip_math_delimiters(expression: str) -> str:
+    text = expression.strip()
+    delimiter_pairs = ((r"\[", r"\]"), ("$$", "$$"), ("$", "$"))
+    changed = True
+    while changed:
+        changed = False
+        for left, right in delimiter_pairs:
+            if text.startswith(left) and text.endswith(right) and len(text) > len(left) + len(right):
+                text = text[len(left) : -len(right)].strip()
+                changed = True
+    return text
+
+
+def braces_are_balanced(expression: str) -> bool:
+    depth = 0
+    escaped = False
+    for char in expression:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def is_safe_math_expression(expression: str) -> bool:
+    if not expression or len(expression) > 1200:
+        return False
+    if "%" in expression or UNSAFE_MATH_RE.search(expression):
+        return False
+    return braces_are_balanced(expression)
+
+
+def raw_to_latex_expression(raw_expression: Any) -> str | None:
+    if raw_expression in (None, ""):
+        return None
+    text = strip_math_delimiters(str(raw_expression))
+    if not text:
+        return None
+
+    replacements = {
+        "≤": r"\le ",
+        "≥": r"\ge ",
+        "≠": r"\ne ",
+        "∑": r"\sum ",
+        "∏": r"\prod ",
+        "√": r"\sqrt{}",
+        "×": r"\times ",
+        "÷": r"\div ",
+        "±": r"\pm ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    text = re.sub(r"(?<!\\)\bsum(?=\s*[_^{])", r"\\sum", text)
+    text = re.sub(r"(?<!\\)\bsum\b", r"\\sum", text)
+    text = re.sub(r"(?<!\\)\bprod(?=\s*[_^{])", r"\\prod", text)
+    text = re.sub(r"(?<!\\)\bprod\b", r"\\prod", text)
+    text = re.sub(r"\barg\s*max\b", r"\\operatorname*{arg\,max}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\barg\s*min\b", r"\\operatorname*{arg\,min}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bSmoothL1\b", r"\\operatorname{SmoothL1}", text)
+    text = re.sub(r"\bCrossEntropy\b", r"\\operatorname{CrossEntropy}", text)
+    text = re.sub(r"\bSSC\b", r"\\operatorname{SSC}", text)
+    text = re.sub(r"\bScore\b", r"\\operatorname{Score}", text)
+    text = re.sub(r"(?<!\\)_theta\b", r"_\\theta", text)
+    text = re.sub(r"(?<!\\)_lambda\b", r"_\\lambda", text)
+    text = re.sub(r"(?<!\\)_gamma\b", r"_\\gamma", text)
+    text = re.sub(r"(?<!\\)_tau\b", r"_\\tau", text)
+    text = re.sub(r"([A-Za-z])_([A-Za-z]{2,})\b", r"\1_{\\mathrm{\2}}", text)
+    for greek in ("alpha", "beta", "gamma", "lambda", "theta", "tau", "omega", "mu", "eta"):
+        text = re.sub(rf"(?<!\\)\b{greek}\b", rf"\\{greek}", text)
+
+    return text if is_safe_math_expression(text) else None
+
+
+def latex_math_block(item: dict[str, Any]) -> str:
+    expression = item.get("latex_expression")
+    latex_expression = strip_math_delimiters(str(expression)) if expression not in (None, "") else None
+    if not latex_expression:
+        latex_expression = raw_to_latex_expression(item.get("raw_expression"))
+    if latex_expression and is_safe_math_expression(latex_expression):
+        return "\n".join([r"\begin{equation*}", latex_expression, r"\end{equation*}"])
+    raw_expression = str(item.get("raw_expression") or "暂无公式。")
+    return "\n".join([r"\begin{quote}", latex_text_block(raw_expression), r"\end{quote}"])
 
 
 def latex_text_block(text: str) -> str:
@@ -121,8 +232,17 @@ def render_chinese_block(value: Any, *, placeholder: str = "暂无信息。") ->
     return latex_text_block(placeholder)
 
 
-def latex_include_graphics(asset_path: str, caption: str) -> str:
+def latex_include_graphics(asset_path: str, caption: str, *, floating: bool = True) -> str:
     path = Path(asset_path).resolve().as_posix()
+    if not floating:
+        return "\n".join(
+            [
+                r"\begin{center}",
+                rf"\includegraphics[width=0.92\linewidth]{{\detokenize{{{path}}}}}",
+                rf"\par\small {escape_latex(caption)}",
+                r"\end{center}",
+            ]
+        )
     return "\n".join(
         [
             r"\begin{figure}[H]",
@@ -152,81 +272,113 @@ def latex_section(title: str, body: str) -> str:
     return "\n".join([rf"\section{{{escape_latex(title)}}}", body]).strip()
 
 
-def format_visual_records(value: Any) -> str:
-    if not isinstance(value, list) or not value:
-        return latex_text_block("暂无信息。")
-
-    blocks = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        label = item.get("label_zh") or item.get("label") or item.get("kind") or "条目"
-        caption = pick_chinese_text(item, "caption_zh", "caption")
-        evidence = pick_chinese_text(item, "evidence_summary_zh", "evidence_summary")
-        crop_status = pick_chinese_text(item, "crop_status_zh", "crop_status")
-        lines = []
-        if item.get("asset_path"):
-            lines.append(latex_include_graphics(str(item["asset_path"]), caption or label))
-        details = []
-        if caption:
-            details.append(f"标题说明: {caption}")
-        elif item.get("asset_path"):
-            details.append("标题说明: 暂无中文标题说明。")
-        if evidence:
-            details.append(f"图表解读: {evidence}")
-        elif item.get("asset_path"):
-            details.append("图表解读: 暂无中文解读。")
-        if item.get("page") not in (None, ""):
-            details.append(f"页码: {item['page']}")
-        if crop_status:
-            details.append(f"提取状态: {crop_status}")
-        lines.append(latex_itemize(details or ["暂无信息。"]))
-        blocks.append(latex_subsection(str(label), "\n\n".join(lines)))
-    return "\n\n".join(blocks) or latex_text_block("暂无信息。")
+def latex_evidence_box(title: str, body: str) -> str:
+    return "\n".join(
+        [
+            rf"\begin{{tcolorbox}}[title={{{escape_latex(title)}}}]",
+            body,
+            r"\end{tcolorbox}",
+        ]
+    )
 
 
-def format_equation_records(value: Any) -> str:
-    if not isinstance(value, list) or not value:
-        return latex_text_block("暂无信息。")
+def evidence_title(item: dict[str, Any], default: str = "证据") -> str:
+    label = str(item.get("label_zh") or item.get("label") or item.get("label_original") or default)
+    caption = pick_chinese_text(item, "caption_zh", "caption")
+    if caption and len(caption) <= 48:
+        return f"{label}：{caption}"
+    return label
 
-    blocks = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        label = item.get("label_zh") or item.get("label") or "公式"
-        parts = []
-        if item.get("raw_expression"):
-            parts.append(
-                "\n".join(
-                    [
-                        r"\begin{quote}",
-                        r"\ttfamily",
-                        rf"\detokenize{{{item['raw_expression']}}}",
-                        r"\end{quote}",
-                    ]
-                )
-            )
-        details = []
-        role = pick_chinese_text(item, "method_role_zh", "method_role")
-        if role:
-            details.append(f"作用: {role}")
-        derivation = pick_chinese_text(item, "derivation_summary_zh", "derivation_summary")
-        if derivation:
-            details.append(f"推导说明: {derivation}")
-        symbols = item.get("symbol_explanations")
-        if isinstance(symbols, dict):
-            symbol_lines = [
-                f"{key}={value}"
-                for key, value in symbols.items()
-                if isinstance(value, str) and value.strip()
-            ]
-            if symbol_lines:
-                details.append("符号说明: " + "；".join(symbol_lines))
-        if item.get("page") not in (None, ""):
-            details.append(f"页码: {item['page']}")
-        parts.append(latex_itemize(details or ["暂无信息。"]))
-        blocks.append(latex_subsection(str(label), "\n\n".join(parts)))
-    return "\n\n".join(blocks) or latex_text_block("暂无信息。")
+
+def format_visual_evidence(item: dict[str, Any]) -> str:
+    title = str(item.get("label_zh") or item.get("label") or item.get("label_original") or "图表证据")
+    caption = pick_chinese_text(item, "caption_zh", "caption")
+    lines = []
+    if item.get("asset_path"):
+        lines.append(latex_include_graphics(str(item["asset_path"]), caption or title, floating=False))
+    elif caption:
+        lines.append(latex_text_block(caption))
+    else:
+        lines.append(latex_text_block("暂无可展示图表。"))
+    return latex_evidence_box(title, "\n\n".join(lines))
+
+
+def format_equation_evidence(item: dict[str, Any]) -> str:
+    title = evidence_title(item, "公式证据")
+    parts = [latex_math_block(item)]
+    details = []
+    role = pick_chinese_text(item, "method_role_zh", "method_role")
+    if role:
+        details.append(f"作用: {role}")
+    derivation = pick_chinese_text(item, "derivation_summary_zh", "derivation_summary")
+    if derivation:
+        details.append(f"推理/推导说明: {derivation}")
+    symbols = item.get("symbol_explanations")
+    if isinstance(symbols, dict):
+        symbol_lines = [
+            f"{key}={value}"
+            for key, value in symbols.items()
+            if isinstance(value, str) and value.strip()
+        ]
+        if symbol_lines:
+            details.append("符号说明: " + "；".join(symbol_lines))
+    if item.get("page") not in (None, ""):
+        details.append(f"页码: {item['page']}")
+    parts.append(latex_itemize(details or ["暂无信息。"]))
+    return latex_evidence_box(title, "\n\n".join(parts))
+
+
+def format_theory_evidence(item: dict[str, Any]) -> str:
+    title = evidence_title(item, "理论证据")
+    details = []
+    for prefix, keys in (
+        ("命题/证明线索", ("statement_summary_zh", "statement_summary", "statement_original")),
+        ("证明主线", ("proof_summary_zh", "proof_summary")),
+        ("意义", ("importance_zh", "importance")),
+    ):
+        text = pick_chinese_text(item, *keys)
+        if text:
+            details.append(f"{prefix}: {text}")
+    assumptions = item.get("assumptions")
+    if isinstance(assumptions, list):
+        zh_assumptions = [
+            str(value).strip()
+            for value in assumptions
+            if str(value).strip() and contains_cjk(str(value))
+        ]
+        if zh_assumptions:
+            details.append("关键假设: " + "；".join(zh_assumptions))
+    if item.get("page") not in (None, ""):
+        details.append(f"页码: {item['page']}")
+    return latex_evidence_box(title, latex_itemize(details or ["暂无信息。"]))
+
+
+def format_generic_evidence(item: dict[str, Any]) -> str:
+    title = evidence_title(item, "证据")
+    body = render_chinese_block(
+        first_value(
+            item.get("body_zh"),
+            item.get("summary_zh"),
+            item.get("evidence_summary_zh"),
+            item.get("body"),
+            item.get("summary"),
+            item.get("text"),
+        )
+    )
+    return latex_evidence_box(title, body)
+
+
+def format_evidence_block(item: dict[str, Any]) -> str:
+    item_type = str(
+        first_value(item.get("type"), item.get("visual_type"), item.get("kind"), "")
+    ).lower()
+    if item_type in {"figure", "table"} or item.get("asset_path"):
+        return format_visual_evidence(item)
+    if item_type in {"equation", "formula"} or item.get("latex_expression") or item.get("raw_expression"):
+        return format_equation_evidence(item)
+    if item_type in {"proof", "theory", "theorem", "lemma", "proposition"} or item.get("proof_summary_zh"):
+        return format_theory_evidence(item)
+    return format_generic_evidence(item)
 
 
 def proof_explanations_from_metadata(metadata: dict[str, Any]) -> list[str]:
@@ -243,32 +395,322 @@ def proof_explanations_from_metadata(metadata: dict[str, Any]) -> list[str]:
     return explanations
 
 
-def format_authors(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
-    highlights = analysis.get("collaboration_highlights")
-    if highlights:
-        return render_block(highlights)
+def flatten_chinese_lines(value: Any) -> list[str]:
+    lines = []
+    if value in (None, "", []):
+        return lines
+    if isinstance(value, str):
+        text = value.strip()
+        if text and contains_cjk(text):
+            lines.append(text)
+        return lines
+    if isinstance(value, list):
+        for item in value:
+            lines.extend(flatten_chinese_lines(item))
+        return lines
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if item in (None, "", []):
+                continue
+            if isinstance(item, (list, dict)):
+                nested = flatten_chinese_lines(item)
+                lines.extend(f"{key}: {line}" for line in nested)
+                continue
+            text = str(item).strip()
+            if text and contains_cjk(text):
+                lines.append(f"{key}: {text}")
+        return lines
+    text = str(value).strip()
+    if text and contains_cjk(text):
+        lines.append(text)
+    return lines
 
-    authors = metadata.get("authors")
-    if not isinstance(authors, list) or not authors:
-        return latex_text_block("暂无信息。")
+
+def render_chinese_paragraphs(value: Any, *, placeholder: str = "暂无信息。") -> str:
+    lines = flatten_chinese_lines(value)
+    if not lines:
+        return latex_text_block(placeholder)
+    return "\n\n".join(latex_text_block(line) for line in lines)
+
+
+def iter_narrative_text_fields(analysis: dict[str, Any]) -> list[tuple[str, str]]:
+    sections = analysis.get("narrative_sections")
+    if not isinstance(sections, list):
+        return []
+    text_fields: list[tuple[str, str]] = []
+    for section_index, section in enumerate(sections, start=1):
+        if not isinstance(section, dict):
+            continue
+        blocks = first_value(section.get("blocks"), section.get("content_blocks"))
+        if not isinstance(blocks, list):
+            continue
+        for block_index, block in enumerate(blocks, start=1):
+            location = f"narrative_sections[{section_index}].blocks[{block_index}]"
+            if isinstance(block, str):
+                text_fields.append((location, block))
+                continue
+            if not isinstance(block, dict):
+                continue
+            for key in (
+                "text_zh",
+                "body_zh",
+                "lead_in_zh",
+                "lead_in",
+                "takeaway_zh",
+                "takeaway",
+                "summary_zh",
+            ):
+                value = block.get(key)
+                if isinstance(value, str) and value.strip():
+                    text_fields.append((f"{location}.{key}", value.strip()))
+    return text_fields
+
+
+def validate_integrated_narrative_language(analysis: dict[str, Any]) -> None:
+    findings: list[str] = []
+    for location, text in iter_narrative_text_fields(analysis):
+        for pattern, guidance in META_EVIDENCE_LANGUAGE_PATTERNS:
+            match = pattern.search(text)
+            if not match:
+                continue
+            fragment = match.group(0)
+            findings.append(f"{location}: `{fragment}`。{guidance}")
+            break
+    if not findings:
+        return
+    message = (
+        "analysis.narrative_sections contains meta evidence-placement language. "
+        "Rewrite the narrative so figures, tables, and formulas are part of the argument itself.\n"
+        + "\n".join(f"- {item}" for item in findings[:10])
+    )
+    raise ValueError(message)
+
+
+def normalize_section_title(section: dict[str, Any], index: int) -> str:
+    title = first_value(section.get("title_zh"), section.get("heading_zh"), section.get("title"))
+    if isinstance(title, str) and title.strip() and contains_cjk(title):
+        return title.strip()
+    return f"主线 {index}"
+
+
+def evidence_identity_keys(item: dict[str, Any]) -> set[str]:
+    keys = set()
+    for key in ("id", "evidence_id", "label", "label_zh", "label_original"):
+        value = item.get(key)
+        if value not in (None, ""):
+            text = str(value).strip().lower()
+            keys.add(text)
+            keys.add(re.sub(r"\s+", "", text))
+    item_type = first_value(item.get("type"), item.get("visual_type"), item.get("kind"))
+    if item_type:
+        for key in list(keys):
+            keys.add(f"{item_type}:{key}")
+    return keys
+
+
+def collect_evidence_blocks(metadata: dict[str, Any], analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+
+    def add_many(items: Any, default_type: str) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            block = dict(item)
+            block.setdefault("type", default_type)
+            blocks.append(block)
+
+    add_many(analysis.get("evidence_blocks"), "evidence")
+    add_many(metadata.get("evidence_blocks"), "evidence")
+    add_many(first_value(analysis.get("key_figures"), metadata.get("figures")), "figure")
+    add_many(first_value(analysis.get("key_tables"), metadata.get("tables")), "table")
+    add_many(first_value(analysis.get("key_equations"), metadata.get("equations")), "equation")
+    add_many(first_value(analysis.get("proof_items"), metadata.get("theoretical_items")), "proof")
+    add_many(metadata.get("theoretical_items"), "proof")
+
+    seen = set()
+    unique: list[dict[str, Any]] = []
+    for block in blocks:
+        identity = tuple(sorted(evidence_identity_keys(block))) or (json.dumps(block, sort_keys=True, ensure_ascii=False),)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(block)
+    return unique
+
+
+def resolve_evidence_blocks(
+    evidence_ids: Any,
+    direct_blocks: Any,
+    evidence_pool: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    resolved: list[dict[str, Any]] = []
+    if isinstance(direct_blocks, list):
+        resolved.extend(item for item in direct_blocks if isinstance(item, dict))
+    elif isinstance(direct_blocks, dict):
+        resolved.append(direct_blocks)
+
+    if isinstance(evidence_ids, str):
+        requested = [evidence_ids]
+    elif isinstance(evidence_ids, list):
+        requested = [str(item) for item in evidence_ids if item not in (None, "")]
+    else:
+        requested = []
+
+    requested_keys = {value.strip().lower() for value in requested}
+    requested_keys |= {re.sub(r"\s+", "", value) for value in list(requested_keys)}
+    for item in evidence_pool:
+        if evidence_identity_keys(item) & requested_keys:
+            resolved.append(item)
+
+    seen = set()
+    unique: list[dict[str, Any]] = []
+    for item in resolved:
+        identity = tuple(sorted(evidence_identity_keys(item))) or (json.dumps(item, sort_keys=True, ensure_ascii=False),)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(item)
+    return unique
+
+
+def render_narrative_content_blocks(
+    section: dict[str, Any],
+    evidence_pool: list[dict[str, Any]],
+) -> str | None:
+    content_blocks = first_value(section.get("blocks"), section.get("content_blocks"))
+    if not isinstance(content_blocks, list) or not content_blocks:
+        return None
+
+    rendered: list[str] = []
+    for block in content_blocks:
+        if isinstance(block, str):
+            if contains_cjk(block):
+                rendered.append(latex_text_block(block))
+            continue
+        if not isinstance(block, dict):
+            continue
+        block_type = str(first_value(block.get("type"), block.get("kind"), "paragraph")).lower()
+
+        if block_type in {"paragraph", "text", "story"}:
+            text = first_value(block.get("text_zh"), block.get("body_zh"), block.get("text"), block.get("body"))
+            if text:
+                rendered.append(render_chinese_paragraphs(text))
+            continue
+
+        if block_type in {"evidence", "figure", "table", "equation", "formula", "proof", "theory"}:
+            lead_in = first_value(block.get("lead_in_zh"), block.get("lead_in"))
+            if lead_in:
+                rendered.append(render_chinese_paragraphs(lead_in))
+            evidence = resolve_evidence_blocks(
+                first_value(block.get("evidence_id"), block.get("evidence_ids"), block.get("evidence_ref")),
+                first_value(block.get("evidence_block"), block.get("evidence_blocks"), block.get("evidence")),
+                evidence_pool,
+            )
+            if not evidence:
+                direct = dict(block)
+                direct.setdefault("type", block_type)
+                evidence = [direct]
+            rendered.extend(format_evidence_block(item) for item in evidence[:3])
+            takeaway = first_value(block.get("takeaway_zh"), block.get("takeaway"))
+            if takeaway:
+                rendered.append(render_chinese_paragraphs(takeaway))
+            continue
+
+        text = first_value(block.get("text_zh"), block.get("body_zh"), block.get("summary_zh"))
+        if text:
+            rendered.append(render_chinese_paragraphs(text))
+
+    return "\n\n".join(rendered) if rendered else None
+
+
+def render_narrative_sections(metadata: dict[str, Any], analysis: dict[str, Any]) -> str | None:
+    sections = analysis.get("narrative_sections")
+    if not isinstance(sections, list) or not sections:
+        return None
+    evidence_pool = collect_evidence_blocks(metadata, analysis)
+    rendered = []
+    for index, section in enumerate(sections, 1):
+        if not isinstance(section, dict):
+            continue
+        title = normalize_section_title(section, index)
+        interleaved_body = render_narrative_content_blocks(section, evidence_pool)
+        if interleaved_body is None:
+            body = render_chinese_paragraphs(
+                first_value(section.get("body_zh"), section.get("body"), section.get("summary_zh"), section.get("summary")),
+            )
+            evidence = resolve_evidence_blocks(
+                first_value(section.get("evidence_ids"), section.get("evidence_refs")),
+                first_value(section.get("evidence_blocks"), section.get("evidence")),
+                evidence_pool,
+            )
+            evidence_latex = "\n\n".join(format_evidence_block(item) for item in evidence[:6])
+            interleaved_body = "\n\n".join(part for part in (body, evidence_latex) if part)
+        rendered.append(latex_section(title, interleaved_body))
+    return "\n\n".join(rendered) if rendered else None
+
+
+def render_missing_narrative_notice() -> str:
+    body = latex_text_block(
+        "尚未由 Codex 完成叙事型报告正文。请先通读 Docling 导出的正文、图表、公式和证明线索，"
+        "确定论文的核心叙事主线，然后在 analysis.json 中写入 narrative_sections。"
+        "不要依赖脚本把 method_flow、key_figures、key_tables 和 key_equations 自动拼成报告。"
+    )
+    return latex_section("论文主线（待 Codex 撰写）", body)
+
+
+def format_author_analysis(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
+    explicit = first_value(analysis.get("author_analysis"), metadata.get("author_influence_summary"))
+    explicit_lines = flatten_chinese_lines(explicit)
 
     lines = []
-    for author in authors:
-        if not isinstance(author, dict):
-            continue
-        name = author.get("name") or "未知作者"
-        parts = []
-        if author.get("affiliation"):
-            parts.append(str(author["affiliation"]))
-        if author.get("citation_count") not in (None, ""):
-            parts.append(f"引用: {author['citation_count']}")
-        if author.get("h_index") not in (None, ""):
-            parts.append(f"h-index: {author['h_index']}")
-        if author.get("is_high_impact"):
-            source = author.get("evidence_source") or "未知来源"
-            parts.append(f"高影响力作者 ({source})")
-        suffix = " | ".join(parts)
-        lines.append(f"{name}" + (f" | {suffix}" if suffix else ""))
+    first_author = metadata.get("first_author")
+    if isinstance(first_author, dict):
+        parts = [str(first_author.get("name") or "未知一作")]
+        if first_author.get("affiliation"):
+            parts.append(str(first_author["affiliation"]))
+        if first_author.get("citation_count") not in (None, ""):
+            parts.append(f"引用 {first_author['citation_count']}")
+        lines.append("一作: " + " | ".join(parts))
+    elif isinstance(first_author, str) and first_author.strip():
+        lines.append(f"一作: {first_author.strip()}")
+
+    corresponding = metadata.get("corresponding_authors")
+    if isinstance(corresponding, list) and corresponding:
+        names = []
+        for author in corresponding:
+            if isinstance(author, dict):
+                names.append(str(author.get("name") or "未知通讯作者"))
+            elif isinstance(author, str):
+                names.append(author)
+        if names:
+            lines.append("通讯作者: " + "，".join(names))
+    elif metadata.get("corresponding_author_status"):
+        lines.append(f"通讯作者: {metadata['corresponding_author_status']}")
+
+    authors = metadata.get("authors")
+    if isinstance(authors, list):
+        for author in authors:
+            if not isinstance(author, dict):
+                continue
+            name = author.get("name") or "未知作者"
+            parts = []
+            if author.get("affiliation"):
+                parts.append(str(author["affiliation"]))
+            if author.get("citation_count") not in (None, ""):
+                parts.append(f"引用: {author['citation_count']}")
+            if author.get("h_index") not in (None, ""):
+                parts.append(f"h-index: {author['h_index']}")
+            if author.get("is_high_impact"):
+                source = author.get("evidence_source") or "未知来源"
+                parts.append(f"高影响力作者 ({source})")
+            if parts:
+                lines.append(f"{name} | " + " | ".join(parts))
+
+    lines.extend(explicit_lines)
+    highlights = flatten_chinese_lines(analysis.get("collaboration_highlights"))
+    lines.extend(highlights)
     return latex_itemize(lines) if lines else latex_text_block("暂无信息。")
 
 
@@ -296,63 +738,58 @@ def build_snapshot(metadata: dict[str, Any]) -> list[str]:
         f"PDF 路径: {first_value(metadata.get('pdf_path'), '暂无信息。')}",
         f"PDF 解析状态: {first_value(metadata.get('pdf_parse_status', {}).get('state') if isinstance(metadata.get('pdf_parse_status'), dict) else None, '暂无信息。')}",
         f"详情页: {first_value(metadata.get('landing_page'), '暂无信息。')}",
+        f"元数据补全状态: {metadata_enrichment_summary(metadata)}",
         f"来源: {source_summary}",
     ]
 
 
+def metadata_enrichment_summary(metadata: dict[str, Any]) -> str:
+    status = metadata.get("metadata_enrichment_status")
+    if not isinstance(status, dict):
+        return "暂无信息。"
+    field_status = status.get("field_status")
+    if isinstance(field_status, dict):
+        missing = [key for key, value in field_status.items() if value != "found"]
+        if missing:
+            return "仍缺失 " + "、".join(missing)
+        return "关键字段已补全"
+    checked = status.get("sources_checked")
+    if isinstance(checked, list) and checked:
+        return "已检查 " + "、".join(str(item) for item in checked)
+    return "暂无信息。"
+
+
+def render_value_limitations(analysis: dict[str, Any]) -> str:
+    blocks = [
+        latex_subsection("论文价值", render_chinese_block(analysis.get("value"))),
+        latex_subsection(
+            "局限",
+            render_chinese_block(first_value(analysis.get("limitation_evidence"), analysis.get("limitations"))),
+        ),
+        latex_subsection("可以怎么优化", render_chinese_block(analysis.get("improvements"))),
+    ]
+    return "\n\n".join(blocks)
+
+
 def build_document_body(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
+    validate_integrated_narrative_language(analysis)
+    narrative_body = render_narrative_sections(metadata, analysis) or render_missing_narrative_notice()
     sections = [
-        ("论文概览", latex_itemize(build_snapshot(metadata))),
-        ("作者与合作亮点", format_authors(metadata, analysis)),
-        ("英文摘要原文", render_block(metadata.get("abstract_en"))),
-        (
+        latex_section("论文概览与元数据", latex_itemize(build_snapshot(metadata))),
+        latex_section("作者与影响力", format_author_analysis(metadata, analysis)),
+        latex_section("英文摘要原文", render_block(metadata.get("abstract_en"))),
+        latex_section(
             "中文摘要",
             render_chinese_block(
                 first_value(analysis.get("abstract_zh"), metadata.get("abstract_zh")),
                 placeholder="暂无忠实直译摘要。",
             ),
         ),
-        ("一句话概括", render_chinese_block(analysis.get("summary_one_liner"))),
-        ("论文在做什么", render_chinese_block(analysis.get("paper_goal"))),
-        (
-            "方法 / 流程",
-            render_chinese_block(
-                first_value(
-                    analysis.get("method_flow"),
-                    analysis.get("method"),
-                    analysis.get("method_evidence"),
-                )
-            ),
-        ),
-        ("关键图解读", format_visual_records(first_value(analysis.get("key_figures"), metadata.get("figures")))),
-        ("关键表解读", format_visual_records(first_value(analysis.get("key_tables"), metadata.get("tables")))),
-        ("关键公式与变量说明", format_equation_records(first_value(analysis.get("key_equations"), metadata.get("equations")))),
-        ("推导过程解释", render_chinese_block(analysis.get("derivation_explanations"))),
-        (
-            "证明过程解释",
-            render_chinese_block(
-                first_value(
-                    analysis.get("proof_explanations"),
-                    proof_explanations_from_metadata(metadata),
-                )
-            ),
-        ),
-        ("完整实验流程", render_chinese_block(analysis.get("experiment_pipeline"))),
-        (
-            "实验里最值得关注的点",
-            render_chinese_block(
-                first_value(
-                    analysis.get("key_experimental_points"),
-                    analysis.get("most_important_experimental_points"),
-                )
-            ),
-        ),
-        ("实验结果", render_chinese_block(first_value(analysis.get("result_evidence"), analysis.get("results")))),
-        ("这篇论文的价值", render_chinese_block(analysis.get("value"))),
-        ("局限", render_chinese_block(first_value(analysis.get("limitation_evidence"), analysis.get("limitations")))),
-        ("可以怎么优化", render_chinese_block(analysis.get("improvements"))),
+        latex_section("一句话概括", render_chinese_block(analysis.get("summary_one_liner"))),
+        narrative_body,
+        latex_section("价值、局限与可优化方向", render_value_limitations(analysis)),
     ]
-    return "\n\n".join(latex_section(title, body) for title, body in sections)
+    return "\n\n".join(sections)
 
 
 def render_report(metadata: dict[str, Any], analysis: dict[str, Any], output_path: Path | None = None) -> str:
