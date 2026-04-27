@@ -15,6 +15,18 @@ from pathlib import Path
 from typing import Any
 
 TITLE_SIMILARITY_THRESHOLD = 0.92
+CANONICAL_BUNDLE_FILES = {
+    "paper_pdf": "paper.pdf",
+    "metadata_json": "metadata.json",
+    "pdf_analysis_json": "pdf_analysis.json",
+    "analysis_json": "analysis.json",
+    "report_tex": "report.tex",
+    "report_pdf": "report.pdf",
+}
+CANONICAL_BUNDLE_DIRS = {
+    "images_dir": "images",
+    "sources_dir": "sources",
+}
 DOI_PREFIXES = (
     "https://doi.org/",
     "http://doi.org/",
@@ -171,6 +183,57 @@ def prepare_record(payload: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def bundle_layout(library_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+    record = prepare_record(metadata)
+    bundle_dir = library_dir / record["paper_id"]
+    paths: dict[str, Any] = {
+        "paper_id": record["paper_id"],
+        "bundle_dir": str(bundle_dir.resolve()),
+    }
+    for key, dirname in CANONICAL_BUNDLE_DIRS.items():
+        paths[key] = str((bundle_dir / dirname).resolve())
+    for key, filename in CANONICAL_BUNDLE_FILES.items():
+        paths[key] = str((bundle_dir / filename).resolve())
+    return paths
+
+
+def ensure_bundle_dirs(paths: dict[str, Any]) -> None:
+    Path(str(paths["bundle_dir"])).mkdir(parents=True, exist_ok=True)
+    for key in CANONICAL_BUNDLE_DIRS:
+        Path(str(paths[key])).mkdir(parents=True, exist_ok=True)
+
+
+def validate_bundle_dir(bundle_dir: Path) -> dict[str, Any]:
+    metadata_path = bundle_dir / CANONICAL_BUNDLE_FILES["metadata_json"]
+    metadata = load_json(metadata_path) if metadata_path.exists() else {}
+    expected_name = prepare_record(metadata).get("paper_id") if metadata else None
+    present = []
+    missing = []
+    for filename in CANONICAL_BUNDLE_FILES.values():
+        target = bundle_dir / filename
+        (present if target.exists() else missing).append(filename)
+    for dirname in CANONICAL_BUNDLE_DIRS.values():
+        target = bundle_dir / dirname
+        (present if target.is_dir() else missing).append(dirname + "/")
+    name_matches = expected_name in (None, bundle_dir.name)
+    required = {
+        CANONICAL_BUNDLE_FILES["metadata_json"],
+        CANONICAL_BUNDLE_DIRS["images_dir"] + "/",
+        CANONICAL_BUNDLE_DIRS["sources_dir"] + "/",
+    }
+    required_missing = [item for item in missing if item in required]
+    return {
+        "bundle_dir": str(bundle_dir.resolve()),
+        "metadata_path": str(metadata_path.resolve()),
+        "expected_paper_id": expected_name,
+        "bundle_dir_name_matches_paper_id": name_matches,
+        "present": present,
+        "missing": missing,
+        "required_missing": required_missing,
+        "valid": not required_missing and name_matches,
+    }
+
+
 def scan_library(library_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     records: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -179,6 +242,9 @@ def scan_library(library_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str
         return records, errors
 
     for metadata_path in sorted(library_dir.rglob("metadata.json")):
+        relative_parts = metadata_path.relative_to(library_dir).parts
+        if CANONICAL_BUNDLE_DIRS["sources_dir"] in relative_parts[:-1]:
+            continue
         try:
             record = prepare_record(load_json(metadata_path))
             record["storage_dir"] = str(metadata_path.parent.resolve())
@@ -338,12 +404,31 @@ def safe_copy(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def safe_copy_tree_contents(source_dir: Path, destination_dir: Path) -> None:
+    if not source_dir.exists():
+        return
+    if not source_dir.is_dir():
+        raise ValueError(f"{source_dir} is not a directory")
+    if source_dir.resolve() == destination_dir.resolve():
+        return
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    for source_path in sorted(source_dir.rglob("*")):
+        if source_path.is_dir():
+            continue
+        relative = source_path.relative_to(source_dir)
+        safe_copy(source_path, destination_dir / relative)
+
+
 def upsert_bundle(
     library_dir: Path,
     metadata: dict[str, Any],
     pdf_source: Path | None = None,
+    pdf_analysis_file: Path | None = None,
+    analysis_file: Path | None = None,
     report_file: Path | None = None,
     report_pdf_file: Path | None = None,
+    images_dir: Path | None = None,
+    sources_dir: Path | None = None,
 ) -> dict[str, Any]:
     library_dir.mkdir(parents=True, exist_ok=True)
     records, _errors = scan_library(library_dir)
@@ -363,23 +448,51 @@ def upsert_bundle(
         duplicate_reason = None
 
     target_dir.mkdir(parents=True, exist_ok=True)
+    layout_paths = bundle_layout(library_dir, final_record)
+    layout_paths["bundle_dir"] = str(target_dir.resolve())
+    for key, dirname in CANONICAL_BUNDLE_DIRS.items():
+        layout_paths[key] = str((target_dir / dirname).resolve())
+    for key, filename in CANONICAL_BUNDLE_FILES.items():
+        layout_paths[key] = str((target_dir / filename).resolve())
+    ensure_bundle_dirs(layout_paths)
+
     final_record["paper_id"] = final_record.get("paper_id") or candidate["paper_id"]
+    final_record["bundle_dir"] = str(target_dir.resolve())
+    final_record["images_dir"] = layout_paths["images_dir"]
+    final_record["sources_dir"] = layout_paths["sources_dir"]
 
     if pdf_source is not None:
-        pdf_destination = target_dir / "paper.pdf"
+        pdf_destination = Path(str(layout_paths["paper_pdf"]))
         safe_copy(pdf_source, pdf_destination)
         final_record["pdf_path"] = str(pdf_destination.resolve())
 
-    write_json(target_dir / "metadata.json", final_record)
+    if pdf_analysis_file is not None:
+        pdf_analysis_destination = Path(str(layout_paths["pdf_analysis_json"]))
+        safe_copy(pdf_analysis_file, pdf_analysis_destination)
+        final_record["pdf_analysis_path"] = str(pdf_analysis_destination.resolve())
+
+    if analysis_file is not None:
+        analysis_destination = Path(str(layout_paths["analysis_json"]))
+        safe_copy(analysis_file, analysis_destination)
+        final_record["analysis_path"] = str(analysis_destination.resolve())
 
     if report_file is not None:
-        safe_copy(report_file, target_dir / report_file.name)
+        report_tex_destination = Path(str(layout_paths["report_tex"]))
+        safe_copy(report_file, report_tex_destination)
+        final_record["report_tex_path"] = str(report_tex_destination.resolve())
 
     if report_pdf_file is not None:
-        report_pdf_destination = target_dir / "report.pdf"
+        report_pdf_destination = Path(str(layout_paths["report_pdf"]))
         safe_copy(report_pdf_file, report_pdf_destination)
         final_record["report_pdf_path"] = str(report_pdf_destination.resolve())
-        write_json(target_dir / "metadata.json", final_record)
+
+    if images_dir is not None:
+        safe_copy_tree_contents(images_dir, Path(str(layout_paths["images_dir"])))
+
+    if sources_dir is not None:
+        safe_copy_tree_contents(sources_dir, Path(str(layout_paths["sources_dir"])))
+
+    write_json(Path(str(layout_paths["metadata_json"])), final_record)
 
     return {
         "created": created,
@@ -387,6 +500,7 @@ def upsert_bundle(
         "target_dir": str(target_dir.resolve()),
         "duplicate_reason": duplicate_reason,
         "pdf_path": final_record.get("pdf_path"),
+        "paths": layout_paths,
     }
 
 
@@ -403,12 +517,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     match_parser.add_argument("--metadata-file", required=True)
     match_parser.add_argument("--json", action="store_true")
 
+    layout_parser = subparsers.add_parser("layout", help="Print the canonical bundle layout for a paper.")
+    layout_parser.add_argument("--library-dir", required=True)
+    layout_parser.add_argument("--metadata-file", required=True)
+    layout_parser.add_argument("--create-dirs", action="store_true")
+    layout_parser.add_argument("--json", action="store_true")
+
+    validate_parser = subparsers.add_parser("validate-layout", help="Validate a canonical paper bundle directory.")
+    validate_parser.add_argument("--bundle-dir", required=True)
+    validate_parser.add_argument("--json", action="store_true")
+
     upsert_parser = subparsers.add_parser("upsert", help="Create or update a paper bundle.")
     upsert_parser.add_argument("--library-dir", required=True)
     upsert_parser.add_argument("--metadata-file", required=True)
     upsert_parser.add_argument("--pdf-source")
+    upsert_parser.add_argument("--pdf-analysis-file")
+    upsert_parser.add_argument("--analysis-file")
     upsert_parser.add_argument("--report-file")
     upsert_parser.add_argument("--report-pdf-file")
+    upsert_parser.add_argument("--images-dir")
+    upsert_parser.add_argument("--sources-dir")
     upsert_parser.add_argument("--json", action="store_true")
 
     return parser.parse_args(argv)
@@ -450,13 +578,26 @@ def main(argv: list[str] | None = None) -> int:
         }
         return emit(payload, args.json)
 
+    if args.command == "layout":
+        payload = bundle_layout(Path(args.library_dir), load_json(Path(args.metadata_file)))
+        if args.create_dirs:
+            ensure_bundle_dirs(payload)
+        return emit(payload, args.json)
+
+    if args.command == "validate-layout":
+        return emit(validate_bundle_dir(Path(args.bundle_dir)), args.json)
+
     if args.command == "upsert":
         payload = upsert_bundle(
             library_dir=Path(args.library_dir),
             metadata=load_json(Path(args.metadata_file)),
             pdf_source=Path(args.pdf_source) if args.pdf_source else None,
+            pdf_analysis_file=Path(args.pdf_analysis_file) if args.pdf_analysis_file else None,
+            analysis_file=Path(args.analysis_file) if args.analysis_file else None,
             report_file=Path(args.report_file) if args.report_file else None,
             report_pdf_file=Path(args.report_pdf_file) if args.report_pdf_file else None,
+            images_dir=Path(args.images_dir) if args.images_dir else None,
+            sources_dir=Path(args.sources_dir) if args.sources_dir else None,
         )
         return emit(payload, args.json)
 

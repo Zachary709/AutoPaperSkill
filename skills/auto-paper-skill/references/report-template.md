@@ -57,8 +57,16 @@ The main report is authored by Codex. Helper scripts may render LaTeX and compil
 
 The saved bundle should also include:
 
+- `paper.pdf`
+- `metadata.json`
+- `pdf_analysis.json`
+- `analysis.json`
+- `images/`
+- `sources/`
 - `report.tex`
 - `report.pdf`
+
+All files above should live under the same canonical bundle directory `<save_root>/<paper_id>/`. Do not scatter final report files into run directories, temporary directories, or the current working directory.
 
 ## Rendering Rules
 

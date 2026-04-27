@@ -57,6 +57,11 @@ Use this schema for every saved `metadata.json`.
     "Indexed by source metadata only"
   ],
   "pdf_path": "/abs/path/to/paper.pdf",
+  "bundle_dir": "/abs/path/to/<save_root>/<paper_id>",
+  "sources_dir": "/abs/path/to/<save_root>/<paper_id>/sources",
+  "images_dir": "/abs/path/to/<save_root>/<paper_id>/images",
+  "pdf_analysis_path": "/abs/path/to/pdf_analysis.json",
+  "analysis_path": "/abs/path/to/analysis.json",
   "report_tex_path": "/abs/path/to/report.tex",
   "report_pdf_path": "/abs/path/to/report.pdf",
   "pdf_parse_status": {
@@ -244,11 +249,24 @@ Use this schema for every saved `metadata.json`.
 - `pdf_path`
   - use an absolute path when the PDF exists locally
   - otherwise keep `null`
+- `bundle_dir`
+  - use the canonical bundle directory `<save_root>/<paper_id>`
+  - do not point this field to a run directory or temporary directory
+- `sources_dir`
+  - use `<bundle_dir>/sources`
+  - store Codex-collected external source payloads or normalized excerpts here
+- `images_dir`
+  - use `<bundle_dir>/images`
+  - store extracted figure and table image assets here
+- `pdf_analysis_path`
+  - use `<bundle_dir>/pdf_analysis.json` when the PDF has been parsed
+- `analysis_path`
+  - use `<bundle_dir>/analysis.json` when a report has been authored
 - `report_tex_path`
-  - use an absolute path when `report.tex` exists locally
+  - use `<bundle_dir>/report.tex` when `report.tex` exists locally
   - otherwise keep `null`
 - `report_pdf_path`
-  - use an absolute path when `report.pdf` exists locally
+  - use `<bundle_dir>/report.pdf` when `report.pdf` exists locally
   - otherwise keep `null`
 - `pdf_parse_status`
   - use `state: parsed` only when a local parser completed successfully

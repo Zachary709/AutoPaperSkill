@@ -50,10 +50,14 @@ Typical contents:
 
 - `paper.pdf`
 - `metadata.json`
+- `pdf_analysis.json`
 - `analysis.json`
 - `images/`
+- `sources/`
 - `report.tex`
 - `report.pdf`
+
+The bundle directory is the only durable output location for a saved paper. Temporary downloads or drafts may be used while working, but final artifacts must be moved into the canonical bundle paths returned by `scripts/paper_store.py upsert` or `scripts/paper_store.py layout`.
 
 ## Report Contract
 

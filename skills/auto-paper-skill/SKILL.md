@@ -38,7 +38,7 @@ Required inputs:
 
 - research direction or keywords
 - local paper directory
-- save directory
+- library root for saved papers
 
 Default behavior:
 
@@ -56,7 +56,7 @@ Required inputs:
 - venue name
 - year or comma-separated year list
 - local paper directory
-- save directory
+- library root for saved papers
 
 Default behavior:
 
@@ -87,7 +87,7 @@ Default behavior:
 Before saving or deduplicating, collect or infer these values:
 
 - local paper directory
-- save directory
+- library root for saved papers
 - whether the user wants candidate discovery only, or discovery plus save, or discovery plus save plus report
 
 If a path is missing and cannot be inferred from the workspace or earlier messages, ask once. Do not ask for values you can discover locally.
@@ -118,10 +118,14 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
 7. Deduplicate against the local library and within the current result set.
    - Use `python3 scripts/paper_store.py match --library-dir <dir> --metadata-file <file> --json` when you need a deterministic duplicate decision.
 8. Show candidate papers before saving unless the user explicitly asked for direct save.
-9. Save accepted papers into the target directory.
-   - Use `python3 scripts/paper_store.py upsert --library-dir <dir> --metadata-file <file> [--pdf-source <path>] [--report-file <path>] --json` when local writing needs to be stable.
+9. Save accepted papers into the canonical paper bundle before deeper processing.
+   - Treat the user-provided save directory as the library root, not as a per-paper output directory.
+   - Use `python3 scripts/paper_store.py upsert --library-dir <library_root> --metadata-file <metadata> --json` to create or locate `<library_root>/<paper_id>/`.
+   - Use the returned `paths` object as the only source of truth for durable outputs: `paper_pdf`, `metadata_json`, `pdf_analysis_json`, `analysis_json`, `images_dir`, `sources_dir`, `report_tex`, and `report_pdf`.
+   - If you already have downloaded PDFs, parsed outputs, images, source payloads, or draft reports, pass them to `upsert` with `--pdf-source`, `--pdf-analysis-file`, `--analysis-file`, `--images-dir`, `--sources-dir`, `--report-file`, and `--report-pdf-file` so they are copied into canonical names.
+   - Do not leave final files in ad hoc paths such as `cats/`, `tmp/`, `run-*`, or the conversation working directory once a paper is accepted for saving.
 10. Parse the local PDF into structured evidence before analysis.
-   - Use `python3 scripts/pdf_analyzer.py --pdf <path> --output-json <path> --images-dir <dir>` when deterministic PDF parsing is useful.
+   - Use `python3 scripts/pdf_analyzer.py --pdf <paper_pdf> --output-json <pdf_analysis_json> --images-dir <images_dir>` with paths from the canonical bundle.
 11. Codex writes the report content before any report-rendering script is used.
    - First read the Docling `document_text`, `document_markdown`, `text_sections`, figure/table captions, extracted images, equations, and proof items.
    - Inspect important extracted images when the visual content matters; do not rely only on captions.
@@ -132,9 +136,10 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
    - Before an evidence block, write what the figure/table/formula concretely contains. After it, write what the observed structure, number, or derivation changes in the current argument.
    - Do not ask `render_report.py` to infer a story from `method_flow`, `key_figures`, `key_tables`, or `key_equations`.
 12. Render the authored report draft.
-   - Use `python3 scripts/render_report.py --metadata-file <file> --analysis-file <file> --output <path> --pdf-output <path>` only after `analysis.narrative_sections` has been written by Codex.
+   - Save Codex-authored analysis as `<bundle_dir>/analysis.json`.
+   - Use `python3 scripts/render_report.py --metadata-file <metadata_json> --analysis-file <analysis_json> --output <report_tex> --pdf-output <report_pdf>` only after `analysis.narrative_sections` has been written by Codex.
 13. Save the compiled PDF report alongside the LaTeX report.
-   - Use `python3 scripts/render_report_pdf.py --tex-file <path> --output <path>` when you already have `report.tex` and need `report.pdf`.
+   - Use `python3 scripts/render_report_pdf.py --tex-file <report_tex> --output <report_pdf>` when you already have `report.tex` and need `report.pdf`.
 
 ## Source Policy
 
@@ -196,10 +201,16 @@ The directory should contain:
 
 - `paper.pdf` for any deep analysis or final report
 - `metadata.json`
+- `pdf_analysis.json` when a PDF is parsed
 - `analysis.json` when a report is generated
 - `images/` for extracted figure assets when available
+- `sources/` for Codex-collected OpenReview, Semantic Scholar, Crossref, arXiv, venue, publisher, or normalized source payloads
 - `report.tex` when a report is generated
 - `report.pdf` when a report is generated
+
+Use `python3 scripts/paper_store.py layout --library-dir <save_root> --metadata-file <metadata> --create-dirs --json` to inspect or create canonical paths before running parsing or rendering. Use `python3 scripts/paper_store.py validate-layout --bundle-dir <save_root>/<paper_id> --json` to check an existing bundle.
+
+Never treat a run directory as the durable paper directory. If a run directory is useful for experiments, place the final accepted paper under `<save_root>/<paper_id>/` and leave run-specific logs outside the paper library.
 
 If the PDF cannot be retrieved, you may still save `metadata.json` for discovery-only workflows, but do not generate a formal analysis report. Keep `pdf_path` as `null` and state clearly that analysis is blocked on PDF retrieval.
 
@@ -303,7 +314,9 @@ Supported operations:
 
 - `scan`: inspect an existing paper library
 - `match`: compare a candidate `metadata.json` against the library
-- `upsert`: create or update a paper bundle in the library
+- `layout`: return canonical bundle paths for a candidate paper
+- `validate-layout`: check whether a saved bundle follows the canonical layout
+- `upsert`: create or update a paper bundle and copy provided artifacts into canonical paths
 
 ### `scripts/render_report.py`
 
