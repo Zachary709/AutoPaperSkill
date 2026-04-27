@@ -6,14 +6,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 import unicodedata
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+DEFAULT_LIBRARY_ENV_VAR = "AUTOPAPER_LIBRARY_DIR"
+CONFIG_FILE_ENV_VAR = "AUTOPAPER_CONFIG_FILE"
 TITLE_SIMILARITY_THRESHOLD = 0.92
 CANONICAL_BUNDLE_FILES = {
     "paper_pdf": "paper.pdf",
@@ -39,6 +43,98 @@ ARXIV_PREFIXES = (
     "http://arxiv.org/pdf/",
     "arxiv:",
 )
+
+
+def default_config_path() -> Path:
+    override = os.environ.get(CONFIG_FILE_ENV_VAR)
+    if override:
+        return Path(override).expanduser()
+
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        return Path(xdg_config_home).expanduser() / "autopaper-skill" / "config.json"
+
+    return Path.home() / ".config" / "autopaper-skill" / "config.json"
+
+
+def load_user_config(config_path: Path | None = None) -> dict[str, Any]:
+    path = config_path or default_config_path()
+    if not path.exists():
+        return {}
+    payload = load_json(path)
+    if not isinstance(payload, dict):  # load_json already enforces this, kept for clarity.
+        raise ValueError(f"{path} does not contain a JSON object")
+    return payload
+
+
+def write_user_config(config: dict[str, Any], config_path: Path | None = None) -> Path:
+    path = config_path or default_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, config)
+    return path
+
+
+def is_under_path(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def is_temporary_library_dir(path: Path) -> bool:
+    resolved = path.expanduser().resolve()
+    temporary_roots = {
+        Path(tempfile.gettempdir()).resolve(),
+        Path("/tmp").resolve(),
+        Path("/var/tmp").resolve(),
+    }
+    return any(is_under_path(resolved, root) for root in temporary_roots)
+
+
+def validate_library_dir(library_dir: Path, allow_temp_library: bool = False) -> Path:
+    resolved = library_dir.expanduser().resolve()
+    if is_temporary_library_dir(resolved) and not allow_temp_library:
+        raise ValueError(
+            f"Refusing to use temporary directory as durable paper library: {resolved}. "
+            "Choose a stable library root, set AUTOPAPER_LIBRARY_DIR, or pass "
+            "--allow-temp-library only for tests and disposable experiments."
+        )
+    return resolved
+
+
+def resolve_library_dir(
+    library_dir: str | None,
+    allow_temp_library: bool = False,
+) -> Path:
+    if library_dir:
+        return validate_library_dir(Path(library_dir), allow_temp_library)
+
+    env_value = os.environ.get(DEFAULT_LIBRARY_ENV_VAR)
+    if env_value:
+        return validate_library_dir(Path(env_value), allow_temp_library)
+
+    config = load_user_config()
+    config_value = config.get("library_dir")
+    if config_value:
+        return validate_library_dir(Path(str(config_value)), allow_temp_library)
+
+    raise ValueError(
+        "No paper library root configured. Pass --library-dir, set "
+        f"{DEFAULT_LIBRARY_ENV_VAR}, or run "
+        "`python3 scripts/paper_store.py config set-library --library-dir <dir>`."
+    )
+
+
+def set_default_library_dir(library_dir: str, allow_temp_library: bool = False) -> dict[str, Any]:
+    resolved = validate_library_dir(Path(library_dir), allow_temp_library)
+    config = load_user_config()
+    config["library_dir"] = str(resolved)
+    config_path = write_user_config(config)
+    return {
+        "config_path": str(config_path.resolve()),
+        "library_dir": str(resolved),
+    }
 
 
 def collapse_whitespace(value: str) -> str:
@@ -508,17 +604,45 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local paper storage helpers.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    config_parser = subparsers.add_parser("config", help="Read or write paper_store defaults.")
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+    get_library_parser = config_subparsers.add_parser("get-library", help="Print the configured library root.")
+    get_library_parser.add_argument("--json", action="store_true")
+    set_library_parser = config_subparsers.add_parser("set-library", help="Persist the default library root.")
+    set_library_parser.add_argument("--library-dir", required=True)
+    set_library_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
+    set_library_parser.add_argument("--json", action="store_true")
+
     scan_parser = subparsers.add_parser("scan", help="Scan a paper library.")
-    scan_parser.add_argument("--library-dir", required=True)
+    scan_parser.add_argument("--library-dir")
+    scan_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
     scan_parser.add_argument("--json", action="store_true")
 
     match_parser = subparsers.add_parser("match", help="Match a candidate against a library.")
-    match_parser.add_argument("--library-dir", required=True)
+    match_parser.add_argument("--library-dir")
+    match_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
     match_parser.add_argument("--metadata-file", required=True)
     match_parser.add_argument("--json", action="store_true")
 
     layout_parser = subparsers.add_parser("layout", help="Print the canonical bundle layout for a paper.")
-    layout_parser.add_argument("--library-dir", required=True)
+    layout_parser.add_argument("--library-dir")
+    layout_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
     layout_parser.add_argument("--metadata-file", required=True)
     layout_parser.add_argument("--create-dirs", action="store_true")
     layout_parser.add_argument("--json", action="store_true")
@@ -528,7 +652,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     validate_parser.add_argument("--json", action="store_true")
 
     upsert_parser = subparsers.add_parser("upsert", help="Create or update a paper bundle.")
-    upsert_parser.add_argument("--library-dir", required=True)
+    upsert_parser.add_argument("--library-dir")
+    upsert_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
     upsert_parser.add_argument("--metadata-file", required=True)
     upsert_parser.add_argument("--pdf-source")
     upsert_parser.add_argument("--pdf-analysis-file")
@@ -554,52 +683,76 @@ def emit(payload: dict[str, Any], as_json: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    try:
+        args = parse_args(argv or sys.argv[1:])
 
-    if args.command == "scan":
-        library_dir = Path(args.library_dir)
-        records, errors = scan_library(library_dir)
-        payload = {
-            "library_dir": str(library_dir.resolve()),
-            "count": len(records),
-            "records": records,
-            "errors": errors,
-        }
-        return emit(payload, args.json)
+        if args.command == "config":
+            if args.config_command == "get-library":
+                library_dir = resolve_library_dir(None)
+                return emit(
+                    {
+                        "config_path": str(default_config_path().resolve()),
+                        "library_dir": str(library_dir),
+                    },
+                    args.json,
+                )
 
-    if args.command == "match":
-        library_dir = Path(args.library_dir)
-        candidate = load_json(Path(args.metadata_file))
-        records, errors = scan_library(library_dir)
-        payload = {
-            "candidate": prepare_record(candidate),
-            "match": find_duplicate(candidate, records),
-            "library_errors": errors,
-        }
-        return emit(payload, args.json)
+            if args.config_command == "set-library":
+                payload = set_default_library_dir(
+                    args.library_dir,
+                    allow_temp_library=args.allow_temp_library,
+                )
+                return emit(payload, args.json)
 
-    if args.command == "layout":
-        payload = bundle_layout(Path(args.library_dir), load_json(Path(args.metadata_file)))
-        if args.create_dirs:
-            ensure_bundle_dirs(payload)
-        return emit(payload, args.json)
+        if args.command == "scan":
+            library_dir = resolve_library_dir(args.library_dir, args.allow_temp_library)
+            records, errors = scan_library(library_dir)
+            payload = {
+                "library_dir": str(library_dir.resolve()),
+                "count": len(records),
+                "records": records,
+                "errors": errors,
+            }
+            return emit(payload, args.json)
 
-    if args.command == "validate-layout":
-        return emit(validate_bundle_dir(Path(args.bundle_dir)), args.json)
+        if args.command == "match":
+            library_dir = resolve_library_dir(args.library_dir, args.allow_temp_library)
+            candidate = load_json(Path(args.metadata_file))
+            records, errors = scan_library(library_dir)
+            payload = {
+                "candidate": prepare_record(candidate),
+                "match": find_duplicate(candidate, records),
+                "library_errors": errors,
+            }
+            return emit(payload, args.json)
 
-    if args.command == "upsert":
-        payload = upsert_bundle(
-            library_dir=Path(args.library_dir),
-            metadata=load_json(Path(args.metadata_file)),
-            pdf_source=Path(args.pdf_source) if args.pdf_source else None,
-            pdf_analysis_file=Path(args.pdf_analysis_file) if args.pdf_analysis_file else None,
-            analysis_file=Path(args.analysis_file) if args.analysis_file else None,
-            report_file=Path(args.report_file) if args.report_file else None,
-            report_pdf_file=Path(args.report_pdf_file) if args.report_pdf_file else None,
-            images_dir=Path(args.images_dir) if args.images_dir else None,
-            sources_dir=Path(args.sources_dir) if args.sources_dir else None,
-        )
-        return emit(payload, args.json)
+        if args.command == "layout":
+            library_dir = resolve_library_dir(args.library_dir, args.allow_temp_library)
+            payload = bundle_layout(library_dir, load_json(Path(args.metadata_file)))
+            if args.create_dirs:
+                ensure_bundle_dirs(payload)
+            return emit(payload, args.json)
+
+        if args.command == "validate-layout":
+            return emit(validate_bundle_dir(Path(args.bundle_dir)), args.json)
+
+        if args.command == "upsert":
+            library_dir = resolve_library_dir(args.library_dir, args.allow_temp_library)
+            payload = upsert_bundle(
+                library_dir=library_dir,
+                metadata=load_json(Path(args.metadata_file)),
+                pdf_source=Path(args.pdf_source) if args.pdf_source else None,
+                pdf_analysis_file=Path(args.pdf_analysis_file) if args.pdf_analysis_file else None,
+                analysis_file=Path(args.analysis_file) if args.analysis_file else None,
+                report_file=Path(args.report_file) if args.report_file else None,
+                report_pdf_file=Path(args.report_pdf_file) if args.report_pdf_file else None,
+                images_dir=Path(args.images_dir) if args.images_dir else None,
+                sources_dir=Path(args.sources_dir) if args.sources_dir else None,
+            )
+            return emit(payload, args.json)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     return 1
 

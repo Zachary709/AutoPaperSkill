@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import io
 import json
+import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills" / "auto-paper-skill"
 if str(SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts import paper_store
+
+REPO_ROOT = SKILL_ROOT.parents[1]
 
 
 class PaperStoreTests(unittest.TestCase):
@@ -67,6 +73,95 @@ class PaperStoreTests(unittest.TestCase):
             self.assertEqual(Path(layout["report_pdf"]), (bundle_dir / "report.pdf").resolve())
             self.assertEqual(Path(layout["images_dir"]), (bundle_dir / "images").resolve())
             self.assertEqual(Path(layout["sources_dir"]), (bundle_dir / "sources").resolve())
+
+    def test_resolve_library_dir_rejects_temp_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "temporary directory"):
+                paper_store.resolve_library_dir(tmpdir)
+
+            self.assertEqual(
+                paper_store.resolve_library_dir(tmpdir, allow_temp_library=True),
+                Path(tmpdir).resolve(),
+            )
+
+    def test_resolve_library_dir_uses_env_default(self) -> None:
+        library_dir = REPO_ROOT / ".paper-library-env-test"
+        with mock.patch.dict(
+            os.environ,
+            {paper_store.DEFAULT_LIBRARY_ENV_VAR: str(library_dir)},
+            clear=True,
+        ):
+            self.assertEqual(
+                paper_store.resolve_library_dir(None),
+                library_dir.resolve(),
+            )
+
+    def test_default_library_config_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            library_dir = REPO_ROOT / ".paper-library-config-test"
+            with mock.patch.dict(
+                os.environ,
+                {paper_store.CONFIG_FILE_ENV_VAR: str(config_path)},
+                clear=True,
+            ):
+                result = paper_store.set_default_library_dir(str(library_dir))
+
+                self.assertEqual(result["config_path"], str(config_path.resolve()))
+                self.assertEqual(result["library_dir"], str(library_dir.resolve()))
+                self.assertEqual(paper_store.resolve_library_dir(None), library_dir.resolve())
+                saved = json.loads(config_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["library_dir"], str(library_dir.resolve()))
+
+    def test_cli_layout_uses_env_library_when_arg_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_file = Path(tmpdir) / "metadata.json"
+            metadata_file.write_text(
+                json.dumps({"title": "Example", "arxiv_id": "2401.01234"}),
+                encoding="utf-8",
+            )
+            library_dir = REPO_ROOT / ".paper-library-env-cli-test"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ,
+                {paper_store.DEFAULT_LIBRARY_ENV_VAR: str(library_dir)},
+                clear=True,
+            ), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = paper_store.main(
+                    ["layout", "--metadata-file", str(metadata_file), "--json"]
+                )
+
+            self.assertEqual(code, 0, stderr.getvalue())
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(
+                Path(payload["bundle_dir"]),
+                (library_dir / "arxiv-2401.01234").resolve(),
+            )
+
+    def test_cli_rejects_temp_library_without_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_file = Path(tmpdir) / "metadata.json"
+            metadata_file.write_text(
+                json.dumps({"title": "Example", "arxiv_id": "2401.01234"}),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+
+            with redirect_stderr(stderr):
+                code = paper_store.main(
+                    [
+                        "layout",
+                        "--library-dir",
+                        tmpdir,
+                        "--metadata-file",
+                        str(metadata_file),
+                    ]
+                )
+
+            self.assertEqual(code, 2)
+            self.assertIn("Refusing to use temporary directory", stderr.getvalue())
 
     def test_upsert_merges_existing_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

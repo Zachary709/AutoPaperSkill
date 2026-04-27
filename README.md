@@ -59,6 +59,17 @@ Typical contents:
 
 The bundle directory is the only durable output location for a saved paper. Temporary downloads or drafts may be used while working, but final artifacts must be moved into the canonical bundle paths returned by `scripts/paper_store.py upsert` or `scripts/paper_store.py layout`.
 
+Do not use `/tmp` as the durable paper library. `paper_store.py` refuses temporary library roots by default, because `/tmp` should only hold downloads, parser scratch files, and drafts.
+
+Set a stable default library once:
+
+```bash
+python3 skills/auto-paper-skill/scripts/paper_store.py config set-library \
+  --library-dir /path/to/paper-library
+```
+
+After that, storage commands can omit `--library-dir`; the script resolves the library root from `AUTOPAPER_LIBRARY_DIR` first, then `~/.config/autopaper-skill/config.json`.
+
 ## Report Contract
 
 New reports must use Codex-authored `analysis.json` fields `narrative_sections`, `evidence_blocks`, `author_analysis`, and `key_equations[].latex_expression`.

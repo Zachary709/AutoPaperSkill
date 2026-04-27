@@ -92,10 +92,18 @@ Before saving or deduplicating, collect or infer these values:
 
 If a path is missing and cannot be inferred from the workspace or earlier messages, ask once. Do not ask for values you can discover locally.
 
+Resolve the library root in this order:
+
+1. explicit path from the current request or earlier conversation
+2. `AUTOPAPER_LIBRARY_DIR`
+3. `~/.config/autopaper-skill/config.json` field `library_dir`
+
+If none of those exist, ask the user for the paper library root before saving, deduplicating, parsing, or generating reports. Do not silently choose `/tmp`, a run directory, or the current working directory as the durable library root. `/tmp` is allowed only for temporary downloads and drafts.
+
 ## Standard Workflow
 
 1. Inspect the local paper library first when a local directory is available.
-   - Use `python3 scripts/paper_store.py scan --library-dir <dir> --json` when a structured scan will save time.
+   - Use `python3 scripts/paper_store.py scan --library-dir <dir> --json` when a structured scan will save time. If `--library-dir` is omitted, `paper_store.py` reads `AUTOPAPER_LIBRARY_DIR` or the saved config.
 2. Search or resolve papers according to the selected mode.
    - External lookup is Codex's responsibility. Use conversation-available web, search, MCP, or browser tools to inspect paper sources.
    - Do not run a helper script whose purpose is to contact OpenReview, Semantic Scholar, Crossref, arXiv, publisher, or venue APIs.
@@ -120,10 +128,10 @@ If a path is missing and cannot be inferred from the workspace or earlier messag
 8. Show candidate papers before saving unless the user explicitly asked for direct save.
 9. Save accepted papers into the canonical paper bundle before deeper processing.
    - Treat the user-provided save directory as the library root, not as a per-paper output directory.
-   - Use `python3 scripts/paper_store.py upsert --library-dir <library_root> --metadata-file <metadata> --json` to create or locate `<library_root>/<paper_id>/`.
+   - Use `python3 scripts/paper_store.py upsert --library-dir <library_root> --metadata-file <metadata> --json` to create or locate `<library_root>/<paper_id>/`. When a default library root has been configured, `--library-dir` may be omitted.
    - Use the returned `paths` object as the only source of truth for durable outputs: `paper_pdf`, `metadata_json`, `pdf_analysis_json`, `analysis_json`, `images_dir`, `sources_dir`, `report_tex`, and `report_pdf`.
    - If you already have downloaded PDFs, parsed outputs, images, source payloads, or draft reports, pass them to `upsert` with `--pdf-source`, `--pdf-analysis-file`, `--analysis-file`, `--images-dir`, `--sources-dir`, `--report-file`, and `--report-pdf-file` so they are copied into canonical names.
-   - Do not leave final files in ad hoc paths such as `cats/`, `tmp/`, `run-*`, or the conversation working directory once a paper is accepted for saving.
+   - Do not leave final files in ad hoc paths such as `cats/`, `tmp/`, `run-*`, `/tmp/...`, or the conversation working directory once a paper is accepted for saving.
 10. Parse the local PDF into structured evidence before analysis.
    - Use `python3 scripts/pdf_analyzer.py --pdf <paper_pdf> --output-json <pdf_analysis_json> --images-dir <images_dir>` with paths from the canonical bundle.
 11. Codex writes the report content before any report-rendering script is used.
@@ -211,6 +219,14 @@ The directory should contain:
 Use `python3 scripts/paper_store.py layout --library-dir <save_root> --metadata-file <metadata> --create-dirs --json` to inspect or create canonical paths before running parsing or rendering. Use `python3 scripts/paper_store.py validate-layout --bundle-dir <save_root>/<paper_id> --json` to check an existing bundle.
 
 Never treat a run directory as the durable paper directory. If a run directory is useful for experiments, place the final accepted paper under `<save_root>/<paper_id>/` and leave run-specific logs outside the paper library.
+
+Do not use `/tmp` or any temporary directory as `<save_root>`. `paper_store.py` rejects temporary library roots by default; `--allow-temp-library` exists only for tests and disposable experiments, not normal paper-library use.
+
+To configure a default library root once, run:
+
+`python3 scripts/paper_store.py config set-library --library-dir <save_root>`
+
+After that, `scan`, `match`, `layout`, and `upsert` may omit `--library-dir` unless the user explicitly wants a different library for the current task.
 
 If the PDF cannot be retrieved, you may still save `metadata.json` for discovery-only workflows, but do not generate a formal analysis report. Keep `pdf_path` as `null` and state clearly that analysis is blocked on PDF retrieval.
 
@@ -312,11 +328,15 @@ Use this when you need deterministic local storage and deduplication behavior.
 
 Supported operations:
 
+- `config get-library`: show the default library root from `AUTOPAPER_LIBRARY_DIR` or config
+- `config set-library`: save a stable default library root in user config
 - `scan`: inspect an existing paper library
 - `match`: compare a candidate `metadata.json` against the library
 - `layout`: return canonical bundle paths for a candidate paper
 - `validate-layout`: check whether a saved bundle follows the canonical layout
 - `upsert`: create or update a paper bundle and copy provided artifacts into canonical paths
+
+For `scan`, `match`, `layout`, and `upsert`, `--library-dir` is optional when `AUTOPAPER_LIBRARY_DIR` or the saved config supplies a default. The script refuses `/tmp` and other temporary library roots unless `--allow-temp-library` is explicitly supplied.
 
 ### `scripts/render_report.py`
 
