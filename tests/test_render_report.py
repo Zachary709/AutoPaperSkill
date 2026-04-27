@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import struct
 
 SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills" / "auto-paper-skill"
 if str(SKILL_ROOT) not in sys.path:
@@ -12,7 +13,47 @@ if str(SKILL_ROOT) not in sys.path:
 from scripts import render_report
 
 
+def write_minimal_png_header(path: Path, width: int, height: int) -> None:
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">II", width, height)
+        + b"\x08\x02\x00\x00\x00"
+        + b"\x00\x00\x00\x00"
+    )
+
+
 class RenderReportTests(unittest.TestCase):
+    def test_report_template_uses_chinese_paragraph_indentation(self) -> None:
+        template = (SKILL_ROOT / "assets" / "report-template.tex").read_text(encoding="utf-8")
+
+        self.assertIn(r"\usepackage{indentfirst}", template)
+        self.assertIn(r"\setlength{\parindent}{2\ccwd}", template)
+        self.assertNotIn(r"\setlength{\parindent}{2em}", template)
+        self.assertIn(r"\titlespacing{\section}", template)
+        self.assertIn(r"\titlespacing{\subsection}", template)
+        self.assertNotIn(r"\titlespacing*{\section}", template)
+        self.assertNotIn(r"\titlespacing*{\subsection}", template)
+
+    def test_include_graphics_scales_by_pixel_width(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            small_image = root / "small.png"
+            large_image = root / "large.png"
+            invalid_image = root / "invalid.png"
+            write_minimal_png_header(small_image, 200, 100)
+            write_minimal_png_header(large_image, 1600, 900)
+            invalid_image.write_bytes(b"not an image")
+
+            small_latex = render_report.latex_include_graphics(str(small_image), "小图", floating=False)
+            large_latex = render_report.latex_include_graphics(str(large_image), "大图", floating=False)
+            invalid_latex = render_report.latex_include_graphics(str(invalid_image), "未知尺寸", floating=False)
+
+            self.assertIn(r"width=0.23\linewidth,keepaspectratio", small_latex)
+            self.assertIn(r"width=0.92\linewidth,keepaspectratio", large_latex)
+            self.assertIn(r"width=0.92\linewidth,keepaspectratio", invalid_latex)
+
     def test_render_report_keeps_required_sections(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

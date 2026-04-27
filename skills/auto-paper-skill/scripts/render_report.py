@@ -6,11 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import struct
 import sys
 from pathlib import Path
 from typing import Any
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+MAX_GRAPHIC_WIDTH_FRACTION = 0.92
+REFERENCE_GRAPHIC_PIXEL_WIDTH = 800
+MIN_GRAPHIC_WIDTH_FRACTION = 0.05
 UNSAFE_MATH_RE = re.compile(
     r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
     re.IGNORECASE,
@@ -232,13 +236,101 @@ def render_chinese_block(value: Any, *, placeholder: str = "暂无信息。") ->
     return latex_text_block(placeholder)
 
 
+def read_jpeg_dimensions(path: Path) -> tuple[int, int] | None:
+    sof_markers = {
+        0xC0,
+        0xC1,
+        0xC2,
+        0xC3,
+        0xC5,
+        0xC6,
+        0xC7,
+        0xC9,
+        0xCA,
+        0xCB,
+        0xCD,
+        0xCE,
+        0xCF,
+    }
+    standalone_markers = set(range(0xD0, 0xD9)) | {0x01}
+    try:
+        with path.open("rb") as handle:
+            if handle.read(2) != b"\xff\xd8":
+                return None
+            while True:
+                prefix = handle.read(1)
+                while prefix and prefix != b"\xff":
+                    prefix = handle.read(1)
+                if not prefix:
+                    return None
+                marker_byte = handle.read(1)
+                while marker_byte == b"\xff":
+                    marker_byte = handle.read(1)
+                if not marker_byte:
+                    return None
+                marker = marker_byte[0]
+                if marker == 0xD9:
+                    return None
+                if marker in standalone_markers:
+                    continue
+                length_bytes = handle.read(2)
+                if len(length_bytes) != 2:
+                    return None
+                segment_length = struct.unpack(">H", length_bytes)[0]
+                if segment_length < 2:
+                    return None
+                payload_length = segment_length - 2
+                if marker in sof_markers:
+                    payload = handle.read(payload_length)
+                    if len(payload) < 5:
+                        return None
+                    height, width = struct.unpack(">HH", payload[1:5])
+                    return (width, height) if width > 0 and height > 0 else None
+                handle.seek(payload_length, 1)
+    except OSError:
+        return None
+
+
+def read_image_dimensions(asset_path: str | Path) -> tuple[int, int] | None:
+    path = Path(asset_path)
+    try:
+        header = path.read_bytes()[:32]
+    except OSError:
+        return None
+
+    if header.startswith(b"\x89PNG\r\n\x1a\n") and len(header) >= 24 and header[12:16] == b"IHDR":
+        width, height = struct.unpack(">II", header[16:24])
+        return (width, height) if width > 0 and height > 0 else None
+    if header.startswith((b"GIF87a", b"GIF89a")) and len(header) >= 10:
+        width, height = struct.unpack("<HH", header[6:10])
+        return (width, height) if width > 0 and height > 0 else None
+    if header.startswith(b"\xff\xd8"):
+        return read_jpeg_dimensions(path)
+    return None
+
+
+def graphics_width_fraction(asset_path: str | Path) -> float:
+    dimensions = read_image_dimensions(asset_path)
+    if not dimensions:
+        return MAX_GRAPHIC_WIDTH_FRACTION
+    width_px, _height_px = dimensions
+    scaled_fraction = MAX_GRAPHIC_WIDTH_FRACTION * width_px / REFERENCE_GRAPHIC_PIXEL_WIDTH
+    return min(MAX_GRAPHIC_WIDTH_FRACTION, max(MIN_GRAPHIC_WIDTH_FRACTION, scaled_fraction))
+
+
+def latex_graphics_options(asset_path: str | Path) -> str:
+    width_fraction = graphics_width_fraction(asset_path)
+    return f"width={width_fraction:.2f}\\linewidth,keepaspectratio"
+
+
 def latex_include_graphics(asset_path: str, caption: str, *, floating: bool = True) -> str:
     path = Path(asset_path).resolve().as_posix()
+    options = latex_graphics_options(asset_path)
     if not floating:
         return "\n".join(
             [
                 r"\begin{center}",
-                rf"\includegraphics[width=0.92\linewidth]{{\detokenize{{{path}}}}}",
+                rf"\includegraphics[{options}]{{\detokenize{{{path}}}}}",
                 rf"\par\small {escape_latex(caption)}",
                 r"\end{center}",
             ]
@@ -247,7 +339,7 @@ def latex_include_graphics(asset_path: str, caption: str, *, floating: bool = Tr
         [
             r"\begin{figure}[H]",
             r"\centering",
-            rf"\includegraphics[width=0.92\linewidth]{{\detokenize{{{path}}}}}",
+            rf"\includegraphics[{options}]{{\detokenize{{{path}}}}}",
             rf"\caption*{{{escape_latex(caption)}}}",
             r"\end{figure}",
         ]

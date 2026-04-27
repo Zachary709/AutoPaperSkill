@@ -63,6 +63,7 @@ The saved bundle should also include:
 ## Rendering Rules
 
 - Before writing, first read the whole evidence bundle: Docling text/Markdown, section snippets, captions, extracted images, formulas, proof items, metadata, and author information.
+- The rendered PDF must use Chinese paragraph formatting: every paragraph, including the first paragraph after each section or subsection heading, starts with a first-line indent of two Chinese characters.
 - Decide the paper's narrative spine before drafting. A good spine usually follows `problem tension -> key idea -> method construction -> math mechanism -> experiment design -> result interpretation -> value and limits`.
 - Prefer paragraphs over bullet lists in narrative sections. Bullets are acceptable for metadata, author facts, or compact checklists, but not as the main explanatory style.
 - Place evidence immediately after the paragraph that needs it. Do not write a paragraph saying `表 2 说明...` and then defer the table to a later evidence dump.
@@ -81,6 +82,7 @@ The saved bundle should also include:
 - Prefer specific statements such as datasets, metrics, loss terms, module names, ablation findings, and proof assumptions over generic evaluations.
 - When a source caption or note is English, translate or paraphrase it into Chinese in the final report unless the exact wording matters.
 - Embed extracted images when `asset_path` exists instead of only printing the file path.
+- Scale embedded figures and tables by their image pixel width, preserving aspect ratio and capping the maximum width at the report text width. Do not force small extracted images to full-page width.
 - Render formulas with `latex_expression` inside a LaTeX math environment when possible. Do not intentionally render key formulas as `\ttfamily` or raw `\detokenize` text.
 - Do not rely on legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` to generate the main report. They are evidence pools, not the report itself.
 
