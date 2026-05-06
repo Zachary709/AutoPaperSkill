@@ -1,104 +1,57 @@
 # Report Template
 
-Use this structure when writing `report.tex`. The core report should read like a coherent story, not like separate dumps of metadata, figures, tables, and formulas.
+Use this reference before writing `analysis.json` and rendering `report.tex`. The report should read like a coherent Chinese explanation, not a dump of metadata, figures, tables, and formulas.
 
-The main report is authored by Codex. Helper scripts may render LaTeX and compile PDF, but they must not decide the narrative order or auto-summarize the paper from field lists.
+Codex writes the intellectual content. Helper scripts only render LaTeX, compile PDF, insert evidence assets, and enforce guardrails.
 
-```markdown
-# <Paper Title>
+## Section Order
 
-## 论文概览与元数据
-- 论文 ID: ...
-- 发表时间: ...
-- 会议或期刊: ...
-- DOI: ...
-- arXiv ID: ...
-- 引用次数: ...
-- PDF 路径: ...
-- PDF 解析状态: ...
-- 详情页: ...
-- 元数据补全状态: ...
-- 来源: ...
+1. `论文概览与元数据`
+2. `作者与影响力`
+3. `英文摘要原文`
+4. `中文摘要`
+5. `一句话概括`
+6. Multiple narrative sections chosen by Codex
+7. `价值、局限与可优化方向`
 
-## 作者与影响力
-...
+Keep every section. Use `暂无信息。` only when the evidence is genuinely missing.
 
-## 英文摘要原文
-...
+## Narrative Contract
 
-## 中文摘要
-...
+- First read the full evidence bundle: metadata, source payloads, PDF text/Markdown, section snippets, captions, extracted images, formulas, and proof items.
+- Draft `narrative_plan` before `narrative_sections`: reader question, answer being built, evidence IDs, and why the evidence matters.
+- The narrative spine should answer the reader's next natural question, usually moving through problem tension, key idea, method construction, math mechanism, experiment design, result interpretation, value, and limits.
+- Prefer paragraphs over bullets in narrative sections.
+- Keep final narration in Chinese, except the original English abstract and raw mathematical expressions.
+- `中文摘要` must be a faithful translation of `英文摘要原文`, not a free summary.
+- Preserve source conflicts in metadata and summarize only the relevant conflict in the report.
 
-## 一句话概括
-...
+## Evidence Integration
 
-## <叙事主线章节 1>
-用多个自然段说明论文为什么要做这件事，把必要的问题背景、核心假设、关键图或公式放在它们第一次真正有解释价值的位置。
+Use `paragraph -> evidence asset -> paragraph`.
 
-## <叙事主线章节 2>
-用多个自然段说明方法如何一步步成立。先讲问题如何逼出某个设计，再紧跟流程图、核心公式、变量含义和推理过程。
+- The paragraph before evidence must prepare the reader: define concepts, compared methods, datasets, metrics, variables, assumptions, or proof goals.
+- The paragraph before evidence must not start with `表 1 把...`, `图 2 展示...`, `公式 3 给出...`, or similar evidence-label openings.
+- The paragraph after evidence must explain how the visible structure, number, formula term, or proof step changes the argument.
+- `placement_hint_zh`, `lead_in_zh`, and `takeaway_zh` are planning notes only. `render_report.py` does not render them.
+- Do not create isolated `关键图/关键表/关键公式` sections by default.
+- Do not use generic claims such as `方法有效`, `实验充分`, `表说明效果好`, or `公式定义目标函数` without concrete details.
+- Embed extracted images when `asset_path` exists. Images are scaled by pixel width and capped at the text width.
+- Render formulas with `latex_expression` in math mode when possible.
 
-## <叙事主线章节 3>
-用多个自然段说明实验如何验证主张。提出某个结论后，紧跟相应表格或图，并解释最值得注意的数字、趋势或反例。
-
-## <可选叙事主线章节 4>
-如果论文有定理、证明或复杂推导，把证明线索作为主线的一部分解释，而不是孤立摘录。
-
-## 价值、局限与可优化方向
-### 论文价值
-...
-
-### 局限
-...
-
-### 可以怎么优化
-...
-```
-
-The saved bundle should also include:
-
-- `paper.pdf`
-- `metadata.json`
-- `pdf_analysis.json`
-- `analysis.json`
-- `images/`
-- `sources/`
-- `report.tex`
-- `report.pdf`
-
-All files above should live under the same canonical bundle directory `<save_root>/<paper_id>/`. Do not scatter final report files into run directories, temporary directories, or the current working directory.
-
-## Rendering Rules
-
-- Before writing, first read the whole evidence bundle: Docling text/Markdown, section snippets, captions, extracted images, formulas, proof items, metadata, and author information.
-- The rendered PDF must use Chinese paragraph formatting: every paragraph, including the first paragraph after each section or subsection heading, starts with a first-line indent of two Chinese characters.
-- Decide the paper's narrative spine before drafting. A good spine usually follows `problem tension -> key idea -> method construction -> math mechanism -> experiment design -> result interpretation -> value and limits`.
-- Prefer paragraphs over bullet lists in narrative sections. Bullets are acceptable for metadata, author facts, or compact checklists, but not as the main explanatory style.
-- Place evidence immediately after the paragraph that needs it. Do not write a paragraph saying `表 2 说明...` and then defer the table to a later evidence dump.
-- Do not write meta placement prose such as `图 2 正好对应这条训练闭环，因此应该放在这里`, `下面展示公式 1`, or `不要放到独立图表章节`. That describes the report construction process instead of the paper.
-- Before each inserted figure, table, or formula, write a content-level bridge: what concrete structure, number, loss term, inference rule, or proof step the reader is about to use.
-- After each inserted figure, table, or formula, add a short Chinese takeaway explaining how that concrete evidence changes or supports the current argument.
-- Keep the metadata, author, abstract, one-line summary, narrative, and value/limitation sections even when information is missing.
-- Use `暂无信息。` as the placeholder.
-- Preserve the English abstract verbatim when you have a reliable source.
-- Keep all report narration and explanatory text in Chinese, except `## 英文摘要原文` and raw mathematical expressions.
-- `## 中文摘要` must be a faithful direct translation of `## 英文摘要原文`, not a free summary.
-- Keep Chinese analysis sections concise but substantive.
-- Put author prestige, first-author, corresponding-author, and collaboration claims in `## 作者与影响力`, not in the snapshot bullets.
-- If multiple sources disagree, summarize the conflict briefly in the relevant section and keep the detailed attribution in `metadata.json`.
-- In narrative sections, anchor claims to figure labels, table labels, equations, or proof markers whenever possible.
-- Prefer specific statements such as datasets, metrics, loss terms, module names, ablation findings, and proof assumptions over generic evaluations.
-- When a source caption or note is English, translate or paraphrase it into Chinese in the final report unless the exact wording matters.
-- Embed extracted images when `asset_path` exists instead of only printing the file path.
-- Scale embedded figures and tables by their image pixel width, preserving aspect ratio and capping the maximum width at the report text width. Do not force small extracted images to full-page width.
-- Render formulas with `latex_expression` inside a LaTeX math environment when possible. Do not intentionally render key formulas as `\ttfamily` or raw `\detokenize` text.
-- Do not rely on legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` to generate the main report. They are evidence pools, not the report itself.
-
-## Evidence Integration Style
+## Examples
 
 Bad:
 
-`图 2 正好对应这条训练闭环，因此应该放在解释 Self-Calibration 的位置，而不是放到独立图表章节里。`
+`表 1 把 GSM8K 与 SVAMP 上的校准误差放在一起比较，核心信号是 SSC 的 ECE 低于原始 P(True) 和普通 self-consistency。`
+
+Better:
+
+`这里有三个置信度来源需要先区分：P(True) 是模型对单条回答的真假自评，Self-Consistency 看多个采样答案是否集中，SSC 则把同一最终答案下多条响应的置信度合成答案组分数。作者在 GSM8K 和 SVAMP 上比较它们的 ECE，是为了检验哪一种信号更适合决定 repeated sampling 何时停止、哪个答案组更可信。`
+
+Bad:
+
+`图 2 正好对应这条训练闭环，因此应该放在解释 Self-Calibration 的位置。`
 
 Better:
 
@@ -106,8 +59,8 @@ Better:
 
 Bad:
 
-`讲到训练目标时立刻展示公式 1。`
+`公式 2 定义了训练目标。`
 
 Better:
 
-`公式 1 把同一答案组内的置信度求和并归一化，得到软自一致性分数；因此测试时扩展比较的是答案组的累计可信度，而不是单个响应的分数。`
+`公式 2 把答案一致性项和置信度项绑在同一个目标里：前者要求同一最终答案的响应聚合到一起，后者惩罚模型对低质量响应给出过高自信。这个目标解释了为什么后面的推理阶段可以用软自一致性分数排序答案组。`

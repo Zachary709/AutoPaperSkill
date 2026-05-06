@@ -26,9 +26,37 @@ META_EVIDENCE_LANGUAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"正好对应"), "不要用“正好对应”解释插入原因，要说明图表公式中的具体元素如何推进论证。"),
     (re.compile(r"讲到.{0,16}(展示|插入|放入|给出)"), "不要写“讲到这里展示”，要把图表公式中的内容写进论述。"),
     (re.compile(r"(这里|此处|下面|接下来|随后).{0,12}(展示|插入|放入|给出)"), "不要写舞台提示式的证据插入语。"),
+    (re.compile(r"看完(这|该)?(张|个)?(图|表|公式)"), "不要写报告操作步骤，要直接承接图表公式中的内容继续解释。"),
+    (re.compile(r"(如图所示|如下图所示|如下表所示|可以看到)"), "不要把理解任务丢给读者，要直接说出图表中的结构、数字或公式含义。"),
     (re.compile(r"读这(张图|个表|个公式|一公式)"), "不要指导读者读图表公式，要直接解释可观察到的结构、数字或推导作用。"),
     (re.compile(r"作为.{0,8}(证据块|图表块|公式块)"), "不要暴露报告结构或证据块概念。"),
 )
+GENERIC_EVIDENCE_LANGUAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"^(图|表|公式)\s*[A-Za-z0-9一二三四五六七八九十.\-]*\s*"
+            r"(展示|显示|说明|呈现|给出)了?"
+            r"(论文|方法|模型|实验|结果|流程|结构|效果|性能|趋势|核心|机制|主要内容)?[。.]?$"
+        ),
+        "不要只写图表公式在展示什么类别，要写出其中具体的结构、数字、变量、步骤或推理作用。",
+    ),
+    (
+        re.compile(
+            r"^(这张图|该图|这个表|该表|这个公式|该公式)"
+            r"(展示|显示|说明|呈现|给出)了?"
+            r"(论文|方法|模型|实验|结果|流程|结构|效果|性能|趋势|核心|机制|主要内容)?[。.]?$"
+        ),
+        "不要只写泛化解说句，要把证据中的可观察细节讲出来。",
+    ),
+)
+ABRUPT_EVIDENCE_OPENING_RE = re.compile(
+    r"^\s*(图|表|公式)\s*[A-Za-z0-9一二三四五六七八九十.\-]*\s*"
+    r"(把|将|是|为|展示|显示|说明|呈现|给出|比较|汇总|列出|报告)"
+)
+MIN_PRE_EVIDENCE_CONTEXT_CJK_CHARS = 18
+MIN_POST_EVIDENCE_CONTEXT_CJK_CHARS = 18
+EVIDENCE_BLOCK_TYPES = {"evidence", "figure", "table", "equation", "formula", "proof", "theory"}
+PARAGRAPH_BLOCK_TYPES = {"paragraph", "text", "story"}
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 if str(SKILL_DIR) not in sys.path:
@@ -53,6 +81,10 @@ def first_value(*values: Any) -> Any:
 
 def contains_cjk(value: str) -> bool:
     return bool(CJK_RE.search(value))
+
+
+def cjk_char_count(value: str) -> int:
+    return len(CJK_RE.findall(value))
 
 
 def escape_latex(text: str) -> str:
@@ -546,10 +578,6 @@ def iter_narrative_text_fields(analysis: dict[str, Any]) -> list[tuple[str, str]
             for key in (
                 "text_zh",
                 "body_zh",
-                "lead_in_zh",
-                "lead_in",
-                "takeaway_zh",
-                "takeaway",
                 "summary_zh",
             ):
                 value = block.get(key)
@@ -574,6 +602,101 @@ def validate_integrated_narrative_language(analysis: dict[str, Any]) -> None:
         "analysis.narrative_sections contains meta evidence-placement language. "
         "Rewrite the narrative so figures, tables, and formulas are part of the argument itself.\n"
         + "\n".join(f"- {item}" for item in findings[:10])
+    )
+    raise ValueError(message)
+
+
+def block_type(block: Any) -> str:
+    if isinstance(block, str):
+        return "paragraph"
+    if not isinstance(block, dict):
+        return ""
+    return str(first_value(block.get("type"), block.get("kind"), "paragraph")).lower()
+
+
+def paragraph_text_from_block(block: Any) -> str | None:
+    if isinstance(block, str):
+        return block.strip() or None
+    if not isinstance(block, dict) or block_type(block) not in PARAGRAPH_BLOCK_TYPES:
+        return None
+    value = first_value(block.get("text_zh"), block.get("body_zh"), block.get("text"), block.get("body"))
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def iter_narrative_evidence_contexts(analysis: dict[str, Any]) -> list[tuple[str, dict[str, Any], str | None, str | None]]:
+    sections = analysis.get("narrative_sections")
+    if not isinstance(sections, list):
+        return []
+    evidence_blocks: list[tuple[str, dict[str, Any], str | None, str | None]] = []
+    for section_index, section in enumerate(sections, start=1):
+        if not isinstance(section, dict):
+            continue
+        blocks = first_value(section.get("blocks"), section.get("content_blocks"))
+        if not isinstance(blocks, list):
+            continue
+        for block_index, block in enumerate(blocks, start=1):
+            if not isinstance(block, dict):
+                continue
+            if block_type(block) in EVIDENCE_BLOCK_TYPES:
+                location = f"narrative_sections[{section_index}].blocks[{block_index}]"
+                before_text = paragraph_text_from_block(blocks[block_index - 2]) if block_index >= 2 else None
+                after_text = paragraph_text_from_block(blocks[block_index]) if block_index < len(blocks) else None
+                evidence_blocks.append((location, block, before_text, after_text))
+    return evidence_blocks
+
+
+def validate_context_paragraph_specificity(location: str, field_name: str, value: Any, min_cjk_chars: int) -> list[str]:
+    if not isinstance(value, str) or not value.strip():
+        return [
+            f"{location}.{field_name}: 缺少相邻的中文整合段落。"
+            "`lead_in_zh`/`takeaway_zh` 只作为放置提示，不会直接渲染进报告。"
+        ]
+    text = value.strip()
+    findings: list[str] = []
+    if cjk_char_count(text) < min_cjk_chars:
+        findings.append(
+            f"{location}.{field_name}: `{text}` 过短。请把图、表、公式或证明和上下文写成完整整合段落。"
+        )
+    for pattern, guidance in GENERIC_EVIDENCE_LANGUAGE_PATTERNS:
+        if pattern.search(text):
+            findings.append(f"{location}.{field_name}: `{text}`。{guidance}")
+            break
+    if field_name == "previous_paragraph" and ABRUPT_EVIDENCE_OPENING_RE.search(text):
+        findings.append(
+            f"{location}.{field_name}: `{text[:80]}` 以图表公式编号开头，读者会感觉证据突然插入。"
+            "请先解释必要概念、对比对象、数据集/指标、变量或推导上下文，再插入证据。"
+        )
+    return findings
+
+
+def validate_narrative_evidence_depth(analysis: dict[str, Any]) -> None:
+    findings: list[str] = []
+    for location, _block, before_text, after_text in iter_narrative_evidence_contexts(analysis):
+        findings.extend(
+            validate_context_paragraph_specificity(
+                location,
+                "previous_paragraph",
+                before_text,
+                MIN_PRE_EVIDENCE_CONTEXT_CJK_CHARS,
+            )
+        )
+        findings.extend(
+            validate_context_paragraph_specificity(
+                location,
+                "next_paragraph",
+                after_text,
+                MIN_POST_EVIDENCE_CONTEXT_CJK_CHARS,
+            )
+        )
+    if not findings:
+        return
+    message = (
+        "analysis.narrative_sections contains evidence blocks that are not integrated into the narrative. "
+        "Keep placement hints in lead_in_zh or narrative_plan if useful, but write final report prose as paragraph -> evidence -> paragraph. "
+        "The renderer inserts the evidence asset only; it does not render lead_in_zh or takeaway_zh as body text.\n"
+        + "\n".join(f"- {item}" for item in findings[:12])
     )
     raise ValueError(message)
 
@@ -683,18 +806,15 @@ def render_narrative_content_blocks(
             continue
         if not isinstance(block, dict):
             continue
-        block_type = str(first_value(block.get("type"), block.get("kind"), "paragraph")).lower()
+        current_block_type = block_type(block)
 
-        if block_type in {"paragraph", "text", "story"}:
+        if current_block_type in PARAGRAPH_BLOCK_TYPES:
             text = first_value(block.get("text_zh"), block.get("body_zh"), block.get("text"), block.get("body"))
             if text:
                 rendered.append(render_chinese_paragraphs(text))
             continue
 
-        if block_type in {"evidence", "figure", "table", "equation", "formula", "proof", "theory"}:
-            lead_in = first_value(block.get("lead_in_zh"), block.get("lead_in"))
-            if lead_in:
-                rendered.append(render_chinese_paragraphs(lead_in))
+        if current_block_type in EVIDENCE_BLOCK_TYPES:
             evidence = resolve_evidence_blocks(
                 first_value(block.get("evidence_id"), block.get("evidence_ids"), block.get("evidence_ref")),
                 first_value(block.get("evidence_block"), block.get("evidence_blocks"), block.get("evidence")),
@@ -702,12 +822,9 @@ def render_narrative_content_blocks(
             )
             if not evidence:
                 direct = dict(block)
-                direct.setdefault("type", block_type)
+                direct.setdefault("type", current_block_type)
                 evidence = [direct]
             rendered.extend(format_evidence_block(item) for item in evidence[:3])
-            takeaway = first_value(block.get("takeaway_zh"), block.get("takeaway"))
-            if takeaway:
-                rendered.append(render_chinese_paragraphs(takeaway))
             continue
 
         text = first_value(block.get("text_zh"), block.get("body_zh"), block.get("summary_zh"))
@@ -865,6 +982,7 @@ def render_value_limitations(analysis: dict[str, Any]) -> str:
 
 def build_document_body(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
     validate_integrated_narrative_language(analysis)
+    validate_narrative_evidence_depth(analysis)
     narrative_body = render_narrative_sections(metadata, analysis) or render_missing_narrative_notice()
     sections = [
         latex_section("论文概览与元数据", latex_itemize(build_snapshot(metadata))),
@@ -905,9 +1023,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def refresh_library_index(metadata_file: Path, metadata: dict[str, Any]) -> dict[str, Any] | None:
+    bundle_dir_value = metadata.get("bundle_dir")
+    bundle_dir = Path(str(bundle_dir_value)) if bundle_dir_value else metadata_file.parent
+    metadata_path = bundle_dir / "metadata.json"
+    if not metadata_path.exists():
+        return None
+
+    from scripts import paper_store
+
+    library_dir = bundle_dir.parent
+    try:
+        library_dir = paper_store.validate_library_dir(library_dir)
+    except ValueError:
+        return None
+    return paper_store.refresh_html_index(library_dir)
+
+
 def main() -> int:
     args = parse_args()
-    metadata = load_json(Path(args.metadata_file))
+    metadata_file = Path(args.metadata_file)
+    metadata = load_json(metadata_file)
     analysis = load_json(Path(args.analysis_file)) if args.analysis_file else {}
     output_path = Path(args.output)
     report = render_report(metadata, analysis, output_path)
@@ -917,6 +1053,7 @@ def main() -> int:
         from scripts import render_report_pdf
 
         render_report_pdf.render_tex_file_to_pdf(output_path, Path(args.pdf_output))
+    refresh_library_index(metadata_file, metadata)
     return 0
 
 

@@ -262,6 +262,7 @@ class PaperStoreTests(unittest.TestCase):
 
             bundle_dir = library_dir / "arxiv-2401.01234"
             self.assertEqual(Path(result["target_dir"]), bundle_dir.resolve())
+            self.assertEqual(Path(result["html_index"]), (library_dir / "papers.html").resolve())
             for relative in (
                 "paper.pdf",
                 "metadata.json",
@@ -290,6 +291,114 @@ class PaperStoreTests(unittest.TestCase):
             self.assertTrue(validation["valid"])
             self.assertIn("metadata.json", validation["present"])
             self.assertIn("sources/", validation["present"])
+
+            html_index = (library_dir / "papers.html").read_text(encoding="utf-8")
+            self.assertIn("Paper Library", html_index)
+            self.assertIn("Example", html_index)
+            self.assertIn("arxiv-2401.01234", html_index)
+            self.assertIn('data-pdf-href="arxiv-2401.01234/paper.pdf"', html_index)
+            self.assertIn('data-pdf-href="arxiv-2401.01234/report.pdf"', html_index)
+            self.assertIn("view report", html_index)
+            self.assertIn('class="preview-pane"', html_index)
+            self.assertIn('id="viewer-empty"', html_index)
+            self.assertIn(
+                "grid-template-columns: minmax(560px, 0.85fr) minmax(640px, 1.15fr)",
+                html_index,
+            )
+            self.assertNotIn("minmax(420px, 38vw)", html_index)
+            self.assertNotIn("download=", html_index)
+
+    def test_refresh_html_index_lists_existing_papers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            library_dir = Path(tmpdir) / "library"
+            bundle_dir = library_dir / "arxiv-2401.01234"
+            bundle_dir.mkdir(parents=True)
+            (bundle_dir / "paper.pdf").write_bytes(b"%PDF-1.7\n")
+            (bundle_dir / "report.pdf").write_bytes(b"%PDF-1.7\nreport\n")
+            (bundle_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "title": "Readable Library Index",
+                        "arxiv_id": "2401.01234",
+                        "authors": [{"name": "Alice"}, {"name": "Bob"}],
+                        "published_at": "2026-04-28",
+                        "venue": "ICLR 2026",
+                        "citation_count": 7,
+                        "abstract_zh": "这个摘要会显示在 HTML 中。",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            second_bundle_dir = library_dir / "arxiv-2501.00001"
+            second_bundle_dir.mkdir(parents=True)
+            (second_bundle_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "title": "Second ICLR Paper",
+                        "arxiv_id": "2501.00001",
+                        "authors": [{"name": "Carol"}],
+                        "published_at": "2025-01-01",
+                        "venue": "ICLR 2025",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            poster_bundle_dir = library_dir / "arxiv-2601.00002"
+            poster_bundle_dir.mkdir(parents=True)
+            (poster_bundle_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "title": "Poster ICLR Paper",
+                        "arxiv_id": "2601.00002",
+                        "authors": [{"name": "Dana"}],
+                        "published_at": "2026-02-01",
+                        "venue": "ICLR 2026 Poster",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = paper_store.refresh_html_index(library_dir)
+
+            self.assertEqual(result["count"], 3)
+            html_path = Path(result["html_index"])
+            self.assertEqual(html_path, (library_dir / "papers.html").resolve())
+            html_index = html_path.read_text(encoding="utf-8")
+            self.assertIn("Readable Library Index", html_index)
+            self.assertIn("Second ICLR Paper", html_index)
+            self.assertIn("Poster ICLR Paper", html_index)
+            self.assertIn("Alice, Bob", html_index)
+            self.assertIn("ICLR 2026", html_index)
+            self.assertIn("ICLR 2026 Poster", html_index)
+            self.assertIn("2026", html_index)
+            self.assertIn("这个摘要会显示在 HTML 中。", html_index)
+            self.assertEqual(html_index.count('class="venue-heading">ICLR</span>'), 1)
+            self.assertIn("</span>/3 papers | years: 2026, 2025", html_index)
+
+    def test_cli_refresh_index_uses_default_library(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            library_dir = REPO_ROOT / ".paper-library-index-cli-test"
+            self.addCleanup(lambda: __import__("shutil").rmtree(library_dir, ignore_errors=True))
+            bundle_dir = library_dir / "arxiv-2401.01234"
+            bundle_dir.mkdir(parents=True)
+            (bundle_dir / "metadata.json").write_text(
+                json.dumps({"title": "CLI Index", "arxiv_id": "2401.01234"}),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ,
+                {paper_store.DEFAULT_LIBRARY_ENV_VAR: str(library_dir)},
+                clear=True,
+            ), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = paper_store.main(["refresh-index", "--json"])
+
+            self.assertEqual(code, 0, stderr.getvalue())
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["count"], 1)
+            self.assertTrue((library_dir / "papers.html").exists())
 
 
 if __name__ == "__main__":

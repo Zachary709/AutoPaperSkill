@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import re
@@ -12,12 +13,15 @@ import shutil
 import sys
 import tempfile
 import unicodedata
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 DEFAULT_LIBRARY_ENV_VAR = "AUTOPAPER_LIBRARY_DIR"
 CONFIG_FILE_ENV_VAR = "AUTOPAPER_CONFIG_FILE"
+HTML_INDEX_FILENAME = "papers.html"
 TITLE_SIMILARITY_THRESHOLD = 0.92
 CANONICAL_BUNDLE_FILES = {
     "paper_pdf": "paper.pdf",
@@ -355,6 +359,386 @@ def scan_library(library_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str
     return records, errors
 
 
+def first_present(*values: Any) -> str:
+    for value in values:
+        if value not in (None, "", []):
+            return str(value)
+    return ""
+
+
+def paper_year(record: dict[str, Any]) -> str:
+    value = first_present(record.get("year"), record.get("published_at"), record.get("publication_date"))
+    match = re.search(r"\b(19|20)\d{2}\b", value)
+    return match.group(0) if match else ""
+
+
+def authors_label(authors: Any, limit: int = 3) -> str:
+    normalized = normalize_authors(authors)
+    names = [author["name"] for author in normalized if author.get("name")]
+    if not names:
+        return ""
+    if len(names) > limit:
+        return ", ".join(names[:limit]) + ", et al."
+    return ", ".join(names)
+
+
+def html_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return html.escape(text, quote=True)
+
+
+def file_href(library_dir: Path, target: Path) -> str:
+    resolved_library = library_dir.resolve()
+    resolved_target = target.resolve()
+    try:
+        relative = resolved_target.relative_to(resolved_library)
+        return "/".join(quote(part) for part in relative.parts)
+    except ValueError:
+        return quote(str(resolved_target))
+
+
+def existing_bundle_file(record: dict[str, Any], filename: str) -> Path | None:
+    storage_dir = record.get("storage_dir")
+    if not storage_dir:
+        return None
+    target = Path(str(storage_dir)) / filename
+    return target if target.exists() else None
+
+
+def link_or_dash(library_dir: Path, target: Path | None, label: str) -> str:
+    if target is None:
+        return '<span class="muted">-</span>'
+    return f'<a href="{html_text(file_href(library_dir, target))}">{html_text(label)}</a>'
+
+
+def pdf_view_button_or_dash(
+    library_dir: Path,
+    target: Path | None,
+    label: str,
+    title: str,
+) -> str:
+    if target is None:
+        return '<span class="muted">-</span>'
+    href = html_text(file_href(library_dir, target))
+    button_label = html_text(label)
+    button_title = html_text(title)
+    return (
+        f'<button type="button" class="pdf-button" '
+        f'data-pdf-href="{href}" data-pdf-title="{button_title}">{button_label}</button>'
+    )
+
+
+def venue_group_label(record: dict[str, Any]) -> str:
+    venue = first_present(record.get("venue"), record.get("publication_venue"))
+    if not venue:
+        return "Unspecified Venue"
+    cleaned = re.sub(r"\((?:19|20)\d{2}\)", " ", venue)
+    cleaned = re.sub(r"\b(?:19|20)\d{2}\b", " ", cleaned)
+    cleaned = re.sub(
+        r"(?:[\s,;:/|_-]+(?:poster|oral|spotlight|talk|workshop|demo|findings)\b)+\s*$",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip(" ,;:-/|")
+    return cleaned or "Unspecified Venue"
+
+
+def record_sort_key(record: dict[str, Any]) -> tuple[int, str, str]:
+    year = paper_year(record)
+    year_value = int(year) if year.isdigit() else 0
+    title = normalize_text(record.get("title"))
+    paper_id = str(record.get("paper_id") or "")
+    return (-year_value, title, paper_id)
+
+
+def venue_group_sort_key(item: tuple[str, list[dict[str, Any]]]) -> tuple[int, str]:
+    label, _records = item
+    is_unspecified = int(label == "Unspecified Venue")
+    return (is_unspecified, normalize_text(label))
+
+
+def render_html_index(
+    library_dir: Path,
+    records: list[dict[str, Any]],
+    errors: list[dict[str, str]] | None = None,
+) -> str:
+    sorted_records = sorted(records, key=record_sort_key)
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    grouped_records: dict[str, list[dict[str, Any]]] = {}
+    for record in sorted_records:
+        grouped_records.setdefault(venue_group_label(record), []).append(record)
+
+    sections: list[str] = []
+    for group_label, group_records in sorted(grouped_records.items(), key=venue_group_sort_key):
+        rows: list[str] = []
+        years = sorted(
+            {year for year in (paper_year(record) for record in group_records) if year},
+            reverse=True,
+        )
+        years_label = ", ".join(years) if years else "unknown year"
+        for record in group_records:
+            title = first_present(record.get("title"), record.get("paper_id"), "Untitled")
+            authors = authors_label(record.get("authors"))
+            venue = first_present(record.get("venue"), record.get("venue_type"))
+            year = paper_year(record)
+            paper_id = first_present(record.get("paper_id"))
+            citation_count = first_present(record.get("citation_count"))
+            summary = first_present(
+                record.get("summary_one_liner"),
+                record.get("abstract_zh"),
+                record.get("abstract_en"),
+            )
+            if len(summary) > 320:
+                summary = summary[:317].rstrip() + "..."
+            storage_dir = Path(str(record.get("storage_dir", "")))
+            metadata_link = link_or_dash(library_dir, storage_dir / "metadata.json", "metadata")
+            pdf_link = pdf_view_button_or_dash(
+                library_dir,
+                existing_bundle_file(record, "paper.pdf"),
+                "view paper",
+                f"{title} - paper.pdf",
+            )
+            report_link = pdf_view_button_or_dash(
+                library_dir,
+                existing_bundle_file(record, "report.pdf"),
+                "view report",
+                f"{title} - report.pdf",
+            )
+            tex_link = link_or_dash(library_dir, existing_bundle_file(record, "report.tex"), "tex")
+            landing_page = first_present(record.get("landing_page"))
+            landing_link = (
+                f'<a href="{html_text(landing_page)}">source</a>'
+                if landing_page.startswith(("http://", "https://"))
+                else '<span class="muted">-</span>'
+            )
+            search_text = " ".join(
+                [
+                    title,
+                    authors,
+                    venue,
+                    group_label,
+                    year,
+                    paper_id,
+                    summary,
+                    first_present(record.get("doi")),
+                    first_present(record.get("arxiv_id")),
+                ]
+            )
+            rows.append(
+                "          <tr "
+                f'data-search="{html_text(normalize_text(search_text))}" '
+                f'data-year="{html_text(year or "unknown")}" '
+                f'data-venue="{html_text(normalize_text(group_label) or "unknown")}">\n'
+                f"            <td><div class=\"title\">{html_text(title)}</div>"
+                f"<div class=\"summary\">{html_text(summary or '暂无摘要。')}</div></td>\n"
+                f"            <td>{html_text(authors or '暂无信息。')}</td>\n"
+                f"            <td>{html_text(year or '暂无')}</td>\n"
+                f"            <td>{html_text(venue or '暂无信息。')}</td>\n"
+                f"            <td>{html_text(str(citation_count) if citation_count else '暂无')}</td>\n"
+                f"            <td><code>{html_text(paper_id)}</code></td>\n"
+                f"            <td class=\"links\">{pdf_link} {report_link} {tex_link} {metadata_link} {landing_link}</td>\n"
+                "          </tr>"
+            )
+        sections.append(
+            "    <details class=\"venue-group\" open>\n"
+            "      <summary>"
+            f"<span class=\"venue-heading\">{html_text(group_label)}</span>"
+            f"<span class=\"group-meta\"><span data-group-count>{len(group_records)}</span>/{len(group_records)} papers | years: {html_text(years_label)}</span>"
+            "</summary>\n"
+            "      <table>\n"
+            "        <thead>\n"
+            "          <tr>\n"
+            "            <th>Title</th>\n"
+            "            <th>Authors</th>\n"
+            "            <th>Year</th>\n"
+            "            <th>Venue</th>\n"
+            "            <th>Cites</th>\n"
+            "            <th>Paper ID</th>\n"
+            "            <th>Files</th>\n"
+            "          </tr>\n"
+            "        </thead>\n"
+            "        <tbody>\n"
+            f"{chr(10).join(rows)}\n"
+            "        </tbody>\n"
+            "      </table>\n"
+            "    </details>"
+        )
+
+    if not sections:
+        sections.append('    <div class="empty">No papers found in this library.</div>')
+
+    error_items = ""
+    if errors:
+        items = "\n".join(
+            f"      <li><code>{html_text(error.get('path'))}</code>: {html_text(error.get('error'))}</li>"
+            for error in errors
+        )
+        error_items = (
+            "  <section class=\"errors\">\n"
+            "    <h2>Scan Warnings</h2>\n"
+            "    <ul>\n"
+            f"{items}\n"
+            "    </ul>\n"
+            "  </section>\n"
+        )
+
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Library</title>
+  <style>
+    :root {{ color-scheme: light; --border: #d0d7de; --border-soft: #eaeef2; --muted: #59636e; --bg: #f6f8fa; --panel: #fff; --text: #1f2328; --accent: #0969da; --accent-soft: #ddf4ff; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: #f3f5f7; }}
+    header {{ padding: 24px 28px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }}
+    h1 {{ margin: 0 0 8px; font-size: 26px; font-weight: 650; letter-spacing: 0; }}
+    .meta {{ color: var(--muted); font-size: 13px; }}
+    .app-shell {{ display: grid; grid-template-columns: minmax(560px, 0.85fr) minmax(640px, 1.15fr); gap: 18px; padding: 18px 20px 28px; align-items: start; }}
+    .library-pane, .preview-pane {{ min-width: 0; }}
+    .toolbar {{ display: flex; gap: 12px; align-items: center; margin-bottom: 14px; padding: 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; }}
+    input[type="search"] {{ width: min(720px, 100%); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 15px; background: #fff; color: var(--text); }}
+    input[type="search"]:focus {{ outline: 2px solid var(--accent-soft); border-color: var(--accent); }}
+    .preview-pane {{ position: sticky; top: 16px; height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }}
+    .viewer-bar {{ display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 44px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg); }}
+    #viewer-title {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .viewer-empty {{ display: grid; place-items: center; height: calc(100vh - 78px); padding: 24px; color: var(--muted); text-align: center; line-height: 1.5; }}
+    #pdf-frame {{ display: block; width: 100%; height: calc(100vh - 78px); border: 0; background: #fff; }}
+    #pdf-frame[hidden], .viewer-empty[hidden], #viewer-close[hidden] {{ display: none; }}
+    .venue-group {{ margin: 0 0 14px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }}
+    .venue-group[hidden] {{ display: none; }}
+    .venue-group summary {{ display: flex; justify-content: space-between; gap: 16px; align-items: center; cursor: pointer; padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid var(--border-soft); }}
+    .venue-heading {{ font-weight: 650; font-size: 16px; }}
+    .group-meta {{ color: var(--muted); font-size: 13px; white-space: nowrap; }}
+    table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+    th, td {{ border-bottom: 1px solid var(--border-soft); padding: 11px 10px; text-align: left; vertical-align: top; }}
+    tbody tr:hover {{ background: #f8fafc; }}
+    th {{ background: #fbfcfd; font-size: 12px; color: var(--muted); font-weight: 650; text-transform: uppercase; }}
+    td {{ font-size: 13px; }}
+    th:nth-child(1), td:nth-child(1) {{ width: 36%; }}
+    th:nth-child(2), td:nth-child(2) {{ width: 15%; }}
+    th:nth-child(3), td:nth-child(3) {{ width: 7%; }}
+    th:nth-child(4), td:nth-child(4) {{ width: 12%; }}
+    th:nth-child(5), td:nth-child(5) {{ width: 7%; }}
+    th:nth-child(6), td:nth-child(6) {{ width: 11%; }}
+    th:nth-child(7), td:nth-child(7) {{ width: 12%; }}
+    .title {{ font-weight: 650; line-height: 1.35; }}
+    .summary {{ margin-top: 6px; color: var(--muted); line-height: 1.45; }}
+    .links a, .pdf-button {{ display: inline-block; margin: 0 6px 6px 0; }}
+    .pdf-button, .preview-pane button {{ border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--accent); cursor: pointer; font: inherit; padding: 3px 8px; }}
+    .pdf-button:hover, .preview-pane button:hover {{ background: var(--accent-soft); border-color: #54aeff; }}
+    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }}
+    a {{ color: var(--accent); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    .muted, .empty {{ color: var(--muted); }}
+    .empty {{ padding: 20px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }}
+    .errors {{ margin-top: 18px; padding: 12px 16px; border: 1px solid #d4a72c; border-radius: 6px; background: #fff8c5; }}
+    @media (max-width: 900px) {{
+      header {{ padding-left: 16px; padding-right: 16px; }}
+      .app-shell {{ display: block; padding: 14px 16px 24px; }}
+      .preview-pane {{ position: static; height: auto; margin-top: 16px; }}
+      .viewer-empty, #pdf-frame {{ height: 70vh; }}
+      table {{ display: block; overflow-x: auto; white-space: normal; }}
+      th, td {{ min-width: 120px; }}
+      th:nth-child(1), td:nth-child(1) {{ min-width: 300px; }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Paper Library</h1>
+    <div class="meta">{len(sorted_records)} papers | generated at {html_text(generated_at)} | root: <code>{html_text(str(library_dir.resolve()))}</code></div>
+  </header>
+  <main class="app-shell">
+    <section class="library-pane">
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Search title, author, venue, year, paper id, DOI, arXiv...">
+        <span id="count" class="meta">{len(sorted_records)} shown</span>
+      </div>
+      <section id="papers">
+{chr(10).join(sections)}
+      </section>
+{error_items}    </section>
+    <aside id="viewer" class="preview-pane" aria-label="PDF preview">
+      <div class="viewer-bar">
+        <strong id="viewer-title">PDF Preview</strong>
+        <button id="viewer-close" type="button" hidden>Close</button>
+      </div>
+      <div id="viewer-empty" class="viewer-empty">Select a paper or report from the list to preview it here.</div>
+      <iframe id="pdf-frame" title="PDF preview" hidden></iframe>
+    </aside>
+  </main>
+  <script>
+    const input = document.getElementById('search');
+    const rows = Array.from(document.querySelectorAll('#papers tr[data-search]'));
+    const groups = Array.from(document.querySelectorAll('.venue-group'));
+    const count = document.getElementById('count');
+    const viewer = document.getElementById('viewer');
+    const viewerTitle = document.getElementById('viewer-title');
+    const pdfFrame = document.getElementById('pdf-frame');
+    const viewerClose = document.getElementById('viewer-close');
+    const viewerEmpty = document.getElementById('viewer-empty');
+    function normalize(value) {{
+      return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+    }}
+    function applyFilter() {{
+      const terms = normalize(input.value).split(' ').filter(Boolean);
+      let visible = 0;
+      for (const row of rows) {{
+        const haystack = row.dataset.search || '';
+        const match = terms.every(term => haystack.includes(term));
+        row.style.display = match ? '' : 'none';
+        if (match) visible += 1;
+      }}
+      for (const group of groups) {{
+        const groupRows = Array.from(group.querySelectorAll('tr[data-search]'));
+        const groupVisible = groupRows.filter(row => row.style.display !== 'none').length;
+        const groupCount = group.querySelector('[data-group-count]');
+        if (groupCount) groupCount.textContent = groupVisible;
+        group.hidden = groupVisible === 0;
+      }}
+      count.textContent = visible + ' shown';
+    }}
+    for (const button of document.querySelectorAll('[data-pdf-href]')) {{
+      button.addEventListener('click', () => {{
+        pdfFrame.src = button.dataset.pdfHref || '';
+        viewerTitle.textContent = button.dataset.pdfTitle || 'PDF Preview';
+        pdfFrame.hidden = false;
+        viewerEmpty.hidden = true;
+        viewerClose.hidden = false;
+        viewer.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+      }});
+    }}
+    viewerClose.addEventListener('click', () => {{
+      pdfFrame.removeAttribute('src');
+      pdfFrame.hidden = true;
+      viewerEmpty.hidden = false;
+      viewerClose.hidden = true;
+      viewerTitle.textContent = 'PDF Preview';
+    }});
+    input.addEventListener('input', applyFilter);
+  </script>
+</body>
+</html>
+"""
+
+
+def refresh_html_index(library_dir: Path, output_file: Path | None = None) -> dict[str, Any]:
+    records, errors = scan_library(library_dir)
+    index_path = output_file or (library_dir / HTML_INDEX_FILENAME)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(render_html_index(library_dir, records, errors), encoding="utf-8")
+    return {
+        "library_dir": str(library_dir.resolve()),
+        "html_index": str(index_path.resolve()),
+        "count": len(records),
+        "errors": errors,
+    }
+
+
 def title_similarity(left: str | None, right: str | None) -> float:
     return SequenceMatcher(None, normalize_text(left), normalize_text(right)).ratio()
 
@@ -525,6 +909,7 @@ def upsert_bundle(
     report_pdf_file: Path | None = None,
     images_dir: Path | None = None,
     sources_dir: Path | None = None,
+    refresh_index: bool = True,
 ) -> dict[str, Any]:
     library_dir.mkdir(parents=True, exist_ok=True)
     records, _errors = scan_library(library_dir)
@@ -589,8 +974,9 @@ def upsert_bundle(
         safe_copy_tree_contents(sources_dir, Path(str(layout_paths["sources_dir"])))
 
     write_json(Path(str(layout_paths["metadata_json"])), final_record)
+    index_payload = refresh_html_index(library_dir) if refresh_index else None
 
-    return {
+    payload = {
         "created": created,
         "paper_id": final_record["paper_id"],
         "target_dir": str(target_dir.resolve()),
@@ -598,6 +984,9 @@ def upsert_bundle(
         "pdf_path": final_record.get("pdf_path"),
         "paths": layout_paths,
     }
+    if index_payload is not None:
+        payload["html_index"] = index_payload["html_index"]
+    return payload
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -647,6 +1036,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     layout_parser.add_argument("--create-dirs", action="store_true")
     layout_parser.add_argument("--json", action="store_true")
 
+    index_parser = subparsers.add_parser("refresh-index", help="Create or update the library HTML index.")
+    index_parser.add_argument("--library-dir")
+    index_parser.add_argument("--output-file")
+    index_parser.add_argument(
+        "--allow-temp-library",
+        action="store_true",
+        help="Allow /tmp or another temporary directory as the library root.",
+    )
+    index_parser.add_argument("--json", action="store_true")
+
     validate_parser = subparsers.add_parser("validate-layout", help="Validate a canonical paper bundle directory.")
     validate_parser.add_argument("--bundle-dir", required=True)
     validate_parser.add_argument("--json", action="store_true")
@@ -666,6 +1065,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     upsert_parser.add_argument("--report-pdf-file")
     upsert_parser.add_argument("--images-dir")
     upsert_parser.add_argument("--sources-dir")
+    upsert_parser.add_argument(
+        "--no-refresh-index",
+        action="store_true",
+        help="Skip updating papers.html after the bundle is written.",
+    )
     upsert_parser.add_argument("--json", action="store_true")
 
     return parser.parse_args(argv)
@@ -733,6 +1137,14 @@ def main(argv: list[str] | None = None) -> int:
                 ensure_bundle_dirs(payload)
             return emit(payload, args.json)
 
+        if args.command == "refresh-index":
+            library_dir = resolve_library_dir(args.library_dir, args.allow_temp_library)
+            payload = refresh_html_index(
+                library_dir=library_dir,
+                output_file=Path(args.output_file) if args.output_file else None,
+            )
+            return emit(payload, args.json)
+
         if args.command == "validate-layout":
             return emit(validate_bundle_dir(Path(args.bundle_dir)), args.json)
 
@@ -748,6 +1160,7 @@ def main(argv: list[str] | None = None) -> int:
                 report_pdf_file=Path(args.report_pdf_file) if args.report_pdf_file else None,
                 images_dir=Path(args.images_dir) if args.images_dir else None,
                 sources_dir=Path(args.sources_dir) if args.sources_dir else None,
+                refresh_index=not args.no_refresh_index,
             )
             return emit(payload, args.json)
     except ValueError as exc:

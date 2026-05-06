@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 import struct
+from unittest import mock
 
 SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills" / "auto-paper-skill"
 if str(SKILL_ROOT) not in sys.path:
@@ -110,18 +112,24 @@ class RenderReportTests(unittest.TestCase):
                             {
                                 "type": "evidence",
                                 "evidence_id": "图 1",
-                                "lead_in_zh": "图 1 中，输入先进入第一阶段处理，再由第二阶段把中间表示转成最终输出。",
-                                "takeaway_zh": "这条两阶段路径说明方法的核心不是单个模块，而是前后两个决策如何连续约束输出。",
+                                "placement_hint_zh": "用图 1 决定总体机制图应该出现在解释两阶段约束的位置。",
                             },
                             {
                                 "type": "paragraph",
-                                "text_zh": "看完图之后，再解释公式如何把目标函数讲清楚。",
+                                "text_zh": "图里的第一阶段先压缩输入，第二阶段再把中间表示转成输出，因此关键不在某个孤立模块，而在前后两个决策如何连续约束同一个结果。",
+                            },
+                            {
+                                "type": "paragraph",
+                                "text_zh": "这套两阶段约束还需要一个可优化的目标，否则流程图只能说明信息怎么流动，不能说明模型到底在优化什么。",
                             },
                             {
                                 "type": "evidence",
                                 "evidence_id": "公式 1",
-                                "lead_in_zh": "公式 1 把训练目标写成输入项和目标项的组合。",
-                                "takeaway_zh": "公式 1 说明输入和目标如何共同决定损失。",
+                                "placement_hint_zh": "用公式 1 决定训练目标应该跟在两阶段流程之后解释。",
+                            },
+                            {
+                                "type": "paragraph",
+                                "text_zh": "公式里的输入项和目标项共同进入损失，说明优化不是单独惩罚输出错误，而是把输入表示和目标约束同时纳入同一个训练目标。",
                             },
                         ],
                     }
@@ -154,9 +162,12 @@ class RenderReportTests(unittest.TestCase):
             self.assertIn(r"\begin{equation*}", report)
             self.assertIn("L = x + y", report)
             self.assertNotIn(r"\detokenize{L = x + y}", report)
-            self.assertLess(report.index("图 1 中，输入先进入第一阶段处理"), report.index(r"\includegraphics"))
-            self.assertLess(report.index(r"\includegraphics"), report.index("这条两阶段路径说明方法的核心"))
-            self.assertLess(report.index("公式 1 把训练目标写成输入项和目标项的组合"), report.index(r"\begin{equation*}"))
+            self.assertNotIn("用图 1 决定总体机制图应该出现在解释两阶段约束的位置", report)
+            self.assertNotIn("用公式 1 决定训练目标应该跟在两阶段流程之后解释", report)
+            self.assertLess(report.index("这部分先解释为什么需要一个新方法"), report.index(r"\includegraphics"))
+            self.assertLess(report.index(r"\includegraphics"), report.index("图里的第一阶段先压缩输入"))
+            self.assertLess(report.index("这套两阶段约束还需要一个可优化的目标"), report.index(r"\begin{equation*}"))
+            self.assertLess(report.index(r"\begin{equation*}"), report.index("公式里的输入项和目标项共同进入损失"))
             self.assertIn(r"\section{价值、局限与可优化方向}", report)
 
     def test_render_report_filters_english_only_analysis_blocks(self) -> None:
@@ -205,7 +216,11 @@ class RenderReportTests(unittest.TestCase):
                         {
                             "type": "evidence",
                             "evidence_id": "公式 1",
-                            "takeaway_zh": "这个公式把同一答案的置信度加起来。",
+                            "placement_hint_zh": "用公式 1 放在解释软自一致性分数的位置。",
+                        },
+                        {
+                            "type": "paragraph",
+                            "text_zh": "公式把同一最终答案的响应置信度先累加再归一化，使推理阶段比较答案组的整体可信度，而不是只相信单条响应的自评。",
                         },
                     ],
                 }
@@ -241,6 +256,142 @@ class RenderReportTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "meta evidence-placement language"):
             render_report.render_report(metadata, analysis)
+
+    def test_render_report_rejects_evidence_without_integrating_paragraphs(self) -> None:
+        metadata = {
+            "title": "Example Paper",
+            "paper_id": "title-123",
+            "authors": [{"name": "Alice"}],
+            "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+        }
+        analysis = {
+            "abstract_zh": "这是摘要直译。",
+            "key_figures": [
+                {
+                    "label": "图 1",
+                    "caption_zh": "方法流程图",
+                    "evidence_summary_zh": "展示方法流程。",
+                }
+            ],
+            "narrative_sections": [
+                {
+                    "title_zh": "主线一：错误证据解释",
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text_zh": "这篇论文试图把校准信号放进推理阶段，但这里需要解释流程中的每一步到底承担什么作用。",
+                        },
+                        {
+                            "type": "evidence",
+                            "evidence_id": "图 1",
+                            "lead_in_zh": "图 1 展示了方法流程。",
+                            "takeaway_zh": "很重要。",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "not integrated into the narrative"):
+            render_report.render_report(metadata, analysis)
+
+    def test_render_report_rejects_abrupt_table_opening_before_evidence(self) -> None:
+        metadata = {
+            "title": "Example Paper",
+            "paper_id": "title-123",
+            "authors": [{"name": "Alice"}],
+            "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+        }
+        analysis = {
+            "abstract_zh": "这是摘要直译。",
+            "key_tables": [
+                {
+                    "label": "表 1",
+                    "caption_zh": "校准误差比较",
+                    "evidence_summary_zh": "比较不同置信度估计方法在两个数据集上的 ECE。",
+                }
+            ],
+            "narrative_sections": [
+                {
+                    "title_zh": "主线一：错误的表格接入",
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text_zh": "CaTS 处理的是 repeated sampling 的预算浪费问题，核心是让系统知道哪些题已经可以停、哪些答案组更值得相信。",
+                        },
+                        {
+                            "type": "paragraph",
+                            "text_zh": "表 1 把 GSM8K 与 SVAMP 上的校准误差放在一起比较，核心信号是 SSC 的 ECE 低于原始 P(True) 和普通 self-consistency。",
+                        },
+                        {
+                            "type": "evidence",
+                            "evidence_id": "表 1",
+                        },
+                        {
+                            "type": "paragraph",
+                            "text_zh": "这个结果说明论文不能直接相信模型的 Yes/No 自评，而要把同一最终答案下多条响应的置信质量合并成更稳的答案组置信度。",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "以图表公式编号开头"):
+            render_report.render_report(metadata, analysis)
+
+    def test_render_report_main_refreshes_library_html_index(self) -> None:
+        repo_root = SKILL_ROOT.parents[1]
+        with tempfile.TemporaryDirectory(dir=repo_root) as tmpdir:
+            library_dir = Path(tmpdir) / "library"
+            bundle_dir = library_dir / "arxiv-2401.01234"
+            bundle_dir.mkdir(parents=True)
+            metadata_file = bundle_dir / "metadata.json"
+            analysis_file = bundle_dir / "analysis.json"
+            output_file = bundle_dir / "report.tex"
+            metadata = {
+                "title": "Rendered Index Paper",
+                "paper_id": "arxiv-2401.01234",
+                "arxiv_id": "2401.01234",
+                "bundle_dir": str(bundle_dir.resolve()),
+                "authors": [{"name": "Alice"}],
+                "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+            }
+            analysis = {
+                "abstract_zh": "这是摘要直译。",
+                "summary_one_liner": "一句话概括。",
+                "narrative_sections": [
+                    {
+                        "title_zh": "主线一：报告完成后刷新索引",
+                        "blocks": [
+                            {
+                                "type": "paragraph",
+                                "text_zh": "报告生成完成后，论文库 HTML 索引应该自动刷新。",
+                            }
+                        ],
+                    }
+                ],
+            }
+            metadata_file.write_text(json.dumps(metadata), encoding="utf-8")
+            analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "render_report.py",
+                    "--metadata-file",
+                    str(metadata_file),
+                    "--analysis-file",
+                    str(analysis_file),
+                    "--output",
+                    str(output_file),
+                ],
+            ):
+                self.assertEqual(render_report.main(), 0)
+
+            html_index = (library_dir / "papers.html").read_text(encoding="utf-8")
+            self.assertIn("Rendered Index Paper", html_index)
+            self.assertIn('href="arxiv-2401.01234/report.tex"', html_index)
 
 
 

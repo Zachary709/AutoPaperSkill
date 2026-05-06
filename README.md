@@ -1,6 +1,10 @@
 # AutoPaperSkill
 
-`AutoPaperSkill` is a Codex skill for research-paper discovery, deduplication, local storage, and deep paper analysis.
+<p align="center">
+  <img src="pic/logo.png" alt="AutoPaperSkill" width="920">
+</p>
+
+`AutoPaperSkill` is a Codex skill for research-paper discovery, deduplication, local storage, browsable library indexing, and deep paper analysis.
 
 It is designed for conversation-first use inside Codex. Helper scripts handle deterministic tasks such as paper storage, PDF parsing, metadata merging, LaTeX formatting, and PDF compilation; Codex remains responsible for external lookup, reading the evidence, deciding the narrative, and writing the report content.
 
@@ -21,6 +25,7 @@ For deep analysis, the skill requires a local PDF and then:
 - enriches metadata across sources instead of stopping at the PDF source
 - has Codex write a Chinese-first, narrative-style report from the full evidence bundle
 - compiles the LaTeX report into `report.pdf`
+- maintains a generated `papers.html` index at the library root for browsing saved papers by venue
 
 ## Current Analysis Behavior
 
@@ -30,8 +35,11 @@ The current version is optimized for evidence-grounded paper reports rather than
 - `英文摘要原文` is preserved verbatim.
 - `中文摘要` is intended to be a faithful direct translation of the English abstract, not a free-form summary.
 - Figures and tables are parsed by Docling as structured document objects first, then exported into `images/`.
+- Docling image export uses a higher default scale than the package default so extracted figures and tables are sharper; rerun `pdf_analyzer.py` with `--image-scale <value>` if a paper still needs higher-resolution assets.
 - Figures, tables, and equations must be embedded into the story line where they explain the method, experiment, or proof instead of being isolated as separate blocks.
+- Report drafting is reader-first: Codex should plan the reader's next question, the answer being built, and the evidence needed before writing the main narrative.
 - The renderer no longer fabricates the main analysis from legacy fields. If `analysis.narrative_sections` is missing, it emits a placeholder telling Codex to write the narrative first.
+- The renderer does not print `lead_in_zh` or `takeaway_zh` as report body. Evidence blocks must be surrounded by Codex-written paragraphs that integrate the figure/table/formula with the surrounding argument.
 - Equations keep their original mathematical expressions and are rendered as LaTeX math when `latex_expression` is available or can be converted safely.
 - If OpenReview exposes a PDF resource, the skill should use that PDF instead of silently falling back to arXiv.
 - OpenReview PDF priority does not stop metadata enrichment: the skill still tries DOI/arXiv/citation/author-impact metadata through sources such as Semantic Scholar, Crossref, and arXiv.
@@ -59,6 +67,13 @@ Typical contents:
 
 The bundle directory is the only durable output location for a saved paper. Temporary downloads or drafts may be used while working, but final artifacts must be moved into the canonical bundle paths returned by `scripts/paper_store.py upsert` or `scripts/paper_store.py layout`.
 
+The library root also has a generated `papers.html` file. It groups papers by conference or journal name with years and presentation suffixes stripped from the group heading, and it opens local PDFs in a right-side preview pane instead of making report links download files. It is refreshed automatically after `paper_store.py upsert` and after `render_report.py` completes for a canonical bundle. To rebuild it manually:
+
+```bash
+python3 skills/auto-paper-skill/scripts/paper_store.py refresh-index \
+  --library-dir /path/to/paper-library
+```
+
 Do not use `/tmp` as the durable paper library. `paper_store.py` refuses temporary library roots by default, because `/tmp` should only hold downloads, parser scratch files, and drafts.
 
 Set a stable default library once:
@@ -72,11 +87,15 @@ After that, storage commands can omit `--library-dir`; the script resolves the l
 
 ## Report Contract
 
-New reports must use Codex-authored `analysis.json` fields `narrative_sections`, `evidence_blocks`, `author_analysis`, and `key_equations[].latex_expression`.
+New reports must use Codex-authored `analysis.json` fields `narrative_plan`, `narrative_sections`, `evidence_blocks`, `author_analysis`, and `key_equations[].latex_expression`.
 
-`narrative_sections[].blocks` should interleave explanation and evidence in order: paragraph, immediately relevant figure/table/formula, then takeaway. Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools for Codex to consult, not a substitute for a written report.
+`narrative_sections[].blocks` should interleave explanation and evidence in order: integrated paragraph, immediately relevant figure/table/formula, then another integrated paragraph that interprets the evidence and continues the argument. Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools for Codex to consult, not a substitute for a written report.
 
-Evidence prose must not describe report layout, such as “this figure should be placed here” or “shown below”. The text before and after a figure/table/formula should explain the concrete content inside that evidence and how it advances the current argument.
+Evidence placement hints such as `placement_hint_zh` or legacy `lead_in_zh` may be kept in `analysis.json` for planning, but they are not rendered. The rendered text before and after a figure/table/formula must be fresh Codex-written prose that combines the evidence content with the current context.
+
+The paragraph immediately before evidence must prepare the reader before naming the evidence. For example, define `P(True)`, Self-Consistency, SSC, the datasets, and ECE before inserting a CaTS calibration table; do not jump straight from the problem statement to `表 1 把...`.
+
+`narrative_plan` is the drafting scaffold, not a rendered section. Use it to decide what a reader needs to understand next, which evidence answers that question, and whether experiments, theory, figures, tables, or formulas deserve slow explanation or only concise mention.
 
 ## Install
 

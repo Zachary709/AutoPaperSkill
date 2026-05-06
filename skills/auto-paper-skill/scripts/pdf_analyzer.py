@@ -22,6 +22,7 @@ UNSAFE_MATH_RE = re.compile(
     r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
     re.IGNORECASE,
 )
+DEFAULT_IMAGE_SCALE = 3.0
 
 
 def contains_cjk(text: str) -> bool:
@@ -245,10 +246,13 @@ def try_import_docling() -> tuple[Any, Any, Any, Any, Any]:
     return DocumentConverter, InputFormat, PdfFormatOption, PdfPipelineOptions, (PictureItem, TableItem)
 
 
-def configure_standard_docling_pipeline_options(pipeline_options: Any) -> Any:
+def configure_standard_docling_pipeline_options(
+    pipeline_options: Any,
+    image_scale: float = DEFAULT_IMAGE_SCALE,
+) -> Any:
     """Configure Docling to use only the standard local PDF pipeline."""
     if hasattr(pipeline_options, "images_scale"):
-        pipeline_options.images_scale = 2.0
+        pipeline_options.images_scale = image_scale
     if hasattr(pipeline_options, "generate_page_images"):
         pipeline_options.generate_page_images = True
     if hasattr(pipeline_options, "generate_picture_images"):
@@ -272,12 +276,12 @@ def configure_standard_docling_pipeline_options(pipeline_options: Any) -> Any:
     return pipeline_options
 
 
-def build_docling_converter() -> tuple[Any, type[Any], type[Any]]:
+def build_docling_converter(image_scale: float = DEFAULT_IMAGE_SCALE) -> tuple[Any, type[Any], type[Any]]:
     DocumentConverter, InputFormat, PdfFormatOption, PdfPipelineOptions, classes = try_import_docling()
     picture_cls, table_cls = classes
 
     pipeline_options = PdfPipelineOptions()
-    configure_standard_docling_pipeline_options(pipeline_options)
+    configure_standard_docling_pipeline_options(pipeline_options, image_scale=image_scale)
 
     converter = DocumentConverter(
         format_options={
@@ -287,8 +291,11 @@ def build_docling_converter() -> tuple[Any, type[Any], type[Any]]:
     return converter, picture_cls, table_cls
 
 
-def convert_with_docling(pdf_path: Path) -> tuple[Any, type[Any], type[Any]]:
-    converter, picture_cls, table_cls = build_docling_converter()
+def convert_with_docling(
+    pdf_path: Path,
+    image_scale: float = DEFAULT_IMAGE_SCALE,
+) -> tuple[Any, type[Any], type[Any]]:
+    converter, picture_cls, table_cls = build_docling_converter(image_scale=image_scale)
     conversion = converter.convert(pdf_path)
     return conversion, picture_cls, table_cls
 
@@ -298,6 +305,7 @@ def extract_docling_visuals(
     picture_cls: type[Any],
     table_cls: type[Any],
     images_dir: Path,
+    image_scale: float,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     figures: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
@@ -321,6 +329,7 @@ def extract_docling_visuals(
                     "caption_zh": caption if contains_cjk(caption) else None,
                     "page": extract_page_no(element),
                     "asset_path": asset_path,
+                    "image_scale": image_scale,
                     "visual_type": "figure",
                     "crop_status": status,
                     "crop_status_zh": status,
@@ -347,6 +356,7 @@ def extract_docling_visuals(
                     "caption_zh": caption if contains_cjk(caption) else None,
                     "page": extract_page_no(element),
                     "asset_path": asset_path,
+                    "image_scale": image_scale,
                     "visual_type": "table",
                     "crop_status": status,
                     "crop_status_zh": status,
@@ -454,11 +464,15 @@ def extract_markdown_sections(markdown: str, *, max_chars_per_section: int = 240
     return sections
 
 
-def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
-    conversion, picture_cls, table_cls = convert_with_docling(pdf_path)
+def analyze_pdf_with_docling(
+    pdf_path: Path,
+    images_dir: Path,
+    image_scale: float = DEFAULT_IMAGE_SCALE,
+) -> dict[str, Any]:
+    conversion, picture_cls, table_cls = convert_with_docling(pdf_path, image_scale=image_scale)
     document = conversion.document
 
-    figures, tables = extract_docling_visuals(document, picture_cls, table_cls, images_dir)
+    figures, tables = extract_docling_visuals(document, picture_cls, table_cls, images_dir, image_scale=image_scale)
     equations, theory_items = extract_docling_textual_evidence(document)
     key_equations = select_key_equations(equations)
     document_markdown = export_document_markdown(document)
@@ -468,6 +482,7 @@ def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]
     notes = [
         "解析器: Docling 标准 PDF pipeline",
         "图和表优先由 Docling 直接解析为文档对象，再导出对应图像资产。",
+        f"Docling 图表导出倍率: {image_scale:g}x。",
         "公式和证明线索优先来自 Docling 的结构化文本结果。",
         "当前未启用 Docling VLM、图片描述或远程模型服务。",
     ]
@@ -485,6 +500,7 @@ def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]
             "state": "已解析",
             "parser": "docling",
             "page_count": page_count,
+            "image_scale": image_scale,
             "notes": notes,
         },
         "figures": figures,
@@ -504,11 +520,22 @@ def analyze_pdf_with_docling(pdf_path: Path, images_dir: Path) -> dict[str, Any]
         "derivation_explanations": [item["derivation_summary_zh"] for item in key_equations[:3]],
     }
 
-def analyze_pdf(pdf_path: Path, images_dir: Path) -> dict[str, Any]:
+def analyze_pdf(
+    pdf_path: Path,
+    images_dir: Path,
+    image_scale: float = DEFAULT_IMAGE_SCALE,
+) -> dict[str, Any]:
     try:
-        return analyze_pdf_with_docling(pdf_path, images_dir)
+        return analyze_pdf_with_docling(pdf_path, images_dir, image_scale=image_scale)
     except Exception as exc:
         raise RuntimeError(f"Docling 解析失败，无法继续生成分析结果: {exc}") from exc
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
 
 
 def parse_args() -> argparse.Namespace:
@@ -516,12 +543,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pdf", required=True, help="Path to the local PDF file.")
     parser.add_argument("--output-json", required=True, help="Path to write the structured JSON output.")
     parser.add_argument("--images-dir", required=True, help="Directory for extracted images.")
+    parser.add_argument(
+        "--image-scale",
+        type=positive_float,
+        default=DEFAULT_IMAGE_SCALE,
+        help=(
+            "Docling image export scale. Higher values produce sharper figure/table assets "
+            f"at the cost of larger files and slower parsing. Default: {DEFAULT_IMAGE_SCALE:g}."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = analyze_pdf(Path(args.pdf), Path(args.images_dir))
+    payload = analyze_pdf(Path(args.pdf), Path(args.images_dir), image_scale=args.image_scale)
     output_path = Path(args.output_json)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

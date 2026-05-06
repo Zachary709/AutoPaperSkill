@@ -105,7 +105,7 @@ class PdfAnalyzerTests(unittest.TestCase):
         configured = pdf_analyzer.configure_standard_docling_pipeline_options(options)
 
         self.assertIs(configured, options)
-        self.assertEqual(configured.images_scale, 2.0)
+        self.assertEqual(configured.images_scale, pdf_analyzer.DEFAULT_IMAGE_SCALE)
         self.assertTrue(configured.generate_page_images)
         self.assertTrue(configured.generate_picture_images)
         self.assertTrue(configured.generate_table_images)
@@ -133,6 +133,7 @@ class PdfAnalyzerTests(unittest.TestCase):
 
             self.assertEqual(payload["pdf_parse_status"]["state"], "已解析")
             self.assertEqual(payload["pdf_parse_status"]["parser"], "docling")
+            self.assertEqual(payload["pdf_parse_status"]["image_scale"], pdf_analyzer.DEFAULT_IMAGE_SCALE)
             self.assertTrue(payload["figures"])
             self.assertTrue(payload["tables"])
             self.assertTrue(payload["equations"])
@@ -146,9 +147,30 @@ class PdfAnalyzerTests(unittest.TestCase):
             self.assertIn("当前未启用 Docling VLM、图片描述或远程模型服务。", payload["pdf_parse_status"]["notes"])
             self.assertEqual(payload["figures"][0]["label"], "图 1")
             self.assertEqual(payload["tables"][0]["label"], "表 1")
+            self.assertEqual(payload["figures"][0]["image_scale"], pdf_analyzer.DEFAULT_IMAGE_SCALE)
+            self.assertEqual(payload["tables"][0]["image_scale"], pdf_analyzer.DEFAULT_IMAGE_SCALE)
             self.assertEqual(payload["figures"][0]["crop_status"], "已由 Docling 直接导出")
             self.assertTrue(Path(payload["figures"][0]["asset_path"]).exists())
             self.assertTrue(Path(payload["tables"][0]["asset_path"]).exists())
+
+    def test_analyze_pdf_accepts_custom_docling_image_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            pdf_path = root / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n")
+            images_dir = root / "images"
+
+            with mock.patch.object(
+                pdf_analyzer,
+                "convert_with_docling",
+                return_value=(FakeConversionResult(), FakePictureItem, FakeTableItem),
+            ) as convert:
+                payload = pdf_analyzer.analyze_pdf(pdf_path, images_dir, image_scale=4.0)
+
+            convert.assert_called_once_with(pdf_path, image_scale=4.0)
+            self.assertEqual(payload["pdf_parse_status"]["image_scale"], 4.0)
+            self.assertEqual(payload["figures"][0]["image_scale"], 4.0)
+            self.assertIn("Docling 图表导出倍率: 4x。", payload["pdf_parse_status"]["notes"])
 
     def test_analyze_pdf_raises_when_docling_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
