@@ -19,6 +19,56 @@ UNSAFE_MATH_RE = re.compile(
     r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
     re.IGNORECASE,
 )
+GREEK_NAMES = (
+    "alpha",
+    "beta",
+    "gamma",
+    "lambda",
+    "theta",
+    "tau",
+    "omega",
+    "mu",
+    "eta",
+    "phi",
+    "psi",
+    "sigma",
+    "rho",
+    "delta",
+    "epsilon",
+    "kappa",
+    "pi",
+)
+GREEK_UNICODE_CHARS = "αβγδεηθκλμπρστω"
+INLINE_SCRIPT_TOKEN = rf"\{{[^{{}}\n]{{1,80}}\}}|\\?[A-Za-z]+|[A-Za-z0-9*{GREEK_UNICODE_CHARS}]+"
+INLINE_MATH_COMMAND_RE = re.compile(r"\\[A-Za-z]+(?:\{[^{}\n]{1,80}\})?(?:[_^](?:\{[^{}\n]{1,80}\}|[A-Za-z0-9]+))?")
+INLINE_MATH_FUNCTION_RE = re.compile(
+    r"(?<![\w\\])([A-Za-z][A-Za-z0-9]*(?:[_^](?:\\?[A-Za-z]+|\{[^{}\n]{1,80}\}))?\([^，。；;！？\n]{1,160}(?:\\[A-Za-z]+|[A-Za-z]_|\bhat_[A-Za-z]\b)[^，。；;！？\n]{0,160}\))"
+)
+INLINE_MATH_ARITH_FUNCTION_RE = re.compile(
+    r"(?<![\w\\])((?:[0-9]+[-+*/])?(?:exp|log)\([^，。；;！？\n]{1,120}\))"
+)
+INLINE_MATH_TILDE_SYMBOL_RE = re.compile(
+    rf"(?<![\w\\])([A-Za-z])~((?:[_^](?:{INLINE_SCRIPT_TOKEN}))+)(?![\w\\])"
+)
+INLINE_MATH_RING_RE = re.compile(
+    r"(?<![\w\\])("
+    r"(?:GR|GF)\([A-Za-z0-9_^, +\-*/{}\\]{1,80}\)"
+    r"|[A-Z]_\{[^{}\n]{1,80}\}"
+    r")(?![\w\\])"
+)
+INLINE_MATH_SYMBOL_RE = re.compile(
+    r"(?<![\w\\])("
+    r"(?:"
+    + "|".join(re.escape(name) for name in sorted(GREEK_NAMES, key=len, reverse=True))
+    + rf"|[{GREEK_UNICODE_CHARS}]?[A-Za-z])"
+    rf"(?:[_^](?:{INLINE_SCRIPT_TOKEN}))+"
+    r")(?![\w\\])"
+)
+INLINE_MATH_IDENTIFIER_RE = re.compile(
+    r"\b(?:hat_[A-Za-z]|[A-Z][A-Za-z0-9]*_(?:"
+    + "|".join(re.escape(name) for name in GREEK_NAMES)
+    + r"|[A-Za-z][A-Za-z0-9]{0,3}))\b"
+)
 META_EVIDENCE_LANGUAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"应该.{0,8}放[在到进]"), "不要讨论图表公式应该放在哪里，要直接解释它本身承载的论文内容。"),
     (re.compile(r"而不是.{0,20}(独立|单独|图表|公式|章节|部分)"), "不要写版式安排对比，要把证据自然接入当前论证。"),
@@ -160,6 +210,20 @@ def raw_to_latex_expression(raw_expression: Any) -> str | None:
         "×": r"\times ",
         "÷": r"\div ",
         "±": r"\pm ",
+        "α": r"\alpha ",
+        "β": r"\beta ",
+        "γ": r"\gamma ",
+        "δ": r"\delta ",
+        "ε": r"\epsilon ",
+        "θ": r"\theta ",
+        "κ": r"\kappa ",
+        "λ": r"\lambda ",
+        "μ": r"\mu ",
+        "π": r"\pi ",
+        "ρ": r"\rho ",
+        "σ": r"\sigma ",
+        "τ": r"\tau ",
+        "ω": r"\omega ",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -174,12 +238,28 @@ def raw_to_latex_expression(raw_expression: Any) -> str | None:
     text = re.sub(r"\bCrossEntropy\b", r"\\operatorname{CrossEntropy}", text)
     text = re.sub(r"\bSSC\b", r"\\operatorname{SSC}", text)
     text = re.sub(r"\bScore\b", r"\\operatorname{Score}", text)
-    text = re.sub(r"(?<!\\)_theta\b", r"_\\theta", text)
-    text = re.sub(r"(?<!\\)_lambda\b", r"_\\lambda", text)
-    text = re.sub(r"(?<!\\)_gamma\b", r"_\\gamma", text)
-    text = re.sub(r"(?<!\\)_tau\b", r"_\\tau", text)
+    text = re.sub(r"(?<!\\)\bexp(?=\()", r"\\exp", text)
+    text = re.sub(r"(?<!\\)\blog(?=\()", r"\\log", text)
+    greek_base_pattern = "|".join(re.escape(name) for name in sorted(GREEK_NAMES, key=len, reverse=True))
+
+    def collapse_plain_subscripts(match: re.Match[str]) -> str:
+        base = match.group(1)
+        pieces = [piece for piece in match.group(2).split("_") if piece]
+        return f"{base}_{{{','.join(pieces)}}}"
+
+    text = re.sub(
+        rf"(?<!\\)\b({greek_base_pattern}|[A-Za-z])_([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)\b",
+        collapse_plain_subscripts,
+        text,
+    )
+    for greek in GREEK_NAMES:
+        text = re.sub(rf"(?<!\\)_{greek}\b", rf"_\\{greek}", text)
+        text = re.sub(rf"(?<!\\)\^{greek}\b", rf"^\\{greek}", text)
+        text = re.sub(rf"(?<!\\)\b{greek}(?=[_^])", rf"\\{greek}", text)
+    text = re.sub(r"\bhat_([A-Za-z])\b", r"\\hat{\1}", text)
+    text = re.sub(r"(\\[A-Za-z]+)_([A-Za-z]{2,})\b", r"\1_{\\mathrm{\2}}", text)
     text = re.sub(r"([A-Za-z])_([A-Za-z]{2,})\b", r"\1_{\\mathrm{\2}}", text)
-    for greek in ("alpha", "beta", "gamma", "lambda", "theta", "tau", "omega", "mu", "eta"):
+    for greek in GREEK_NAMES:
         text = re.sub(rf"(?<!\\)\b{greek}\b", rf"\\{greek}", text)
 
     return text if is_safe_math_expression(text) else None
@@ -196,11 +276,66 @@ def latex_math_block(item: dict[str, Any]) -> str:
     return "\n".join([r"\begin{quote}", latex_text_block(raw_expression), r"\end{quote}"])
 
 
+def collect_inline_math_spans(text: str) -> list[tuple[int, int, str]]:
+    candidates: list[tuple[int, int, str]] = []
+
+    def add_match(match: re.Match[str], expression: str | None = None) -> None:
+        raw = expression if expression is not None else match.group(0)
+        latex_expression = raw_to_latex_expression(raw)
+        if latex_expression:
+            candidates.append((match.start(), match.end(), latex_expression))
+
+    for match in re.finditer(r"\\\((.+?)\\\)", text):
+        add_match(match, match.group(1))
+    for match in re.finditer(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", text):
+        add_match(match, match.group(1))
+    for match in INLINE_MATH_FUNCTION_RE.finditer(text):
+        add_match(match, match.group(1))
+    for match in INLINE_MATH_ARITH_FUNCTION_RE.finditer(text):
+        add_match(match, match.group(1))
+    for match in INLINE_MATH_TILDE_SYMBOL_RE.finditer(text):
+        add_match(match, rf"\tilde{{{match.group(1)}}}{match.group(2)}")
+    for match in INLINE_MATH_RING_RE.finditer(text):
+        add_match(match, match.group(1))
+    for match in INLINE_MATH_SYMBOL_RE.finditer(text):
+        add_match(match, match.group(1))
+    for match in INLINE_MATH_COMMAND_RE.finditer(text):
+        add_match(match)
+    for match in INLINE_MATH_IDENTIFIER_RE.finditer(text):
+        add_match(match)
+
+    selected: list[tuple[int, int, str]] = []
+    last_end = -1
+    for start, end, expression in sorted(candidates, key=lambda item: (item[0], -(item[1] - item[0]))):
+        if start < last_end:
+            continue
+        selected.append((start, end, expression))
+        last_end = end
+    return selected
+
+
+def escape_latex_with_inline_math(text: str) -> str:
+    spans = collect_inline_math_spans(text)
+    if not spans:
+        return escape_latex(text)
+
+    rendered: list[str] = []
+    cursor = 0
+    for start, end, expression in spans:
+        if start > cursor:
+            rendered.append(escape_latex(text[cursor:start]))
+        rendered.append(rf"\({expression}\)")
+        cursor = end
+    if cursor < len(text):
+        rendered.append(escape_latex(text[cursor:]))
+    return "".join(rendered)
+
+
 def latex_text_block(text: str) -> str:
     paragraphs = [segment.strip() for segment in text.splitlines() if segment.strip()]
     if not paragraphs:
         return escape_latex("暂无信息。")
-    return "\n\n".join(escape_latex(paragraph) for paragraph in paragraphs)
+    return "\n\n".join(escape_latex_with_inline_math(paragraph) for paragraph in paragraphs)
 
 
 def latex_itemize(items: list[str]) -> str:
@@ -208,7 +343,7 @@ def latex_itemize(items: list[str]) -> str:
         return latex_text_block("暂无信息。")
     lines = [r"\begin{itemize}[leftmargin=*]"]
     for item in items:
-        lines.append(rf"\item {escape_latex(item)}")
+        lines.append(rf"\item {escape_latex_with_inline_math(item)}")
     lines.append(r"\end{itemize}")
     return "\n".join(lines)
 
@@ -356,14 +491,18 @@ def latex_graphics_options(asset_path: str | Path) -> str:
 
 
 def latex_include_graphics(asset_path: str, caption: str, *, floating: bool = True) -> str:
-    path = Path(asset_path).resolve().as_posix()
-    options = latex_graphics_options(asset_path)
+    asset = Path(asset_path)
+    if not asset.exists():
+        missing_note = f"图像文件缺失，已跳过嵌入: {asset_path}"
+        return "\n".join([r"\begin{quote}", latex_text_block(missing_note), r"\end{quote}"])
+    path = asset.resolve().as_posix()
+    options = latex_graphics_options(asset)
     if not floating:
         return "\n".join(
             [
                 r"\begin{center}",
                 rf"\includegraphics[{options}]{{\detokenize{{{path}}}}}",
-                rf"\par\small {escape_latex(caption)}",
+                rf"\par\small {escape_latex_with_inline_math(caption)}",
                 r"\end{center}",
             ]
         )
@@ -372,7 +511,7 @@ def latex_include_graphics(asset_path: str, caption: str, *, floating: bool = Tr
             r"\begin{figure}[H]",
             r"\centering",
             rf"\includegraphics[{options}]{{\detokenize{{{path}}}}}",
-            rf"\caption*{{{escape_latex(caption)}}}",
+            rf"\caption*{{{escape_latex_with_inline_math(caption)}}}",
             r"\end{figure}",
         ]
     )
@@ -389,17 +528,17 @@ def pick_chinese_text(item: dict[str, Any], *keys: str) -> str | None:
 
 
 def latex_subsection(title: str, body: str) -> str:
-    return "\n".join([rf"\subsection{{{escape_latex(title)}}}", body]).strip()
+    return "\n".join([rf"\subsection{{{escape_latex_with_inline_math(title)}}}", body]).strip()
 
 
 def latex_section(title: str, body: str) -> str:
-    return "\n".join([rf"\section{{{escape_latex(title)}}}", body]).strip()
+    return "\n".join([rf"\section{{{escape_latex_with_inline_math(title)}}}", body]).strip()
 
 
 def latex_evidence_box(title: str, body: str) -> str:
     return "\n".join(
         [
-            rf"\begin{{tcolorbox}}[title={{{escape_latex(title)}}}]",
+            rf"\begin{{tcolorbox}}[title={{{escape_latex_with_inline_math(title)}}}]",
             body,
             r"\end{tcolorbox}",
         ]
@@ -862,11 +1001,11 @@ def render_narrative_sections(metadata: dict[str, Any], analysis: dict[str, Any]
 
 def render_missing_narrative_notice() -> str:
     body = latex_text_block(
-        "尚未由 Codex 完成叙事型报告正文。请先通读 Docling 导出的正文、图表、公式和证明线索，"
+        "尚未完成叙事型报告正文。请先通读 Docling 导出的正文、图表、公式和证明线索，"
         "确定论文的核心叙事主线，然后在 analysis.json 中写入 narrative_sections。"
         "不要依赖脚本把 method_flow、key_figures、key_tables 和 key_equations 自动拼成报告。"
     )
-    return latex_section("论文主线（待 Codex 撰写）", body)
+    return latex_section("论文主线（待撰写）", body)
 
 
 def format_author_analysis(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
@@ -980,9 +1119,10 @@ def render_value_limitations(analysis: dict[str, Any]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_document_body(metadata: dict[str, Any], analysis: dict[str, Any]) -> str:
-    validate_integrated_narrative_language(analysis)
-    validate_narrative_evidence_depth(analysis)
+def build_document_body(metadata: dict[str, Any], analysis: dict[str, Any], *, validate_narrative: bool = True) -> str:
+    if validate_narrative:
+        validate_integrated_narrative_language(analysis)
+        validate_narrative_evidence_depth(analysis)
     narrative_body = render_narrative_sections(metadata, analysis) or render_missing_narrative_notice()
     sections = [
         latex_section("论文概览与元数据", latex_itemize(build_snapshot(metadata))),
@@ -1002,13 +1142,19 @@ def build_document_body(metadata: dict[str, Any], analysis: dict[str, Any]) -> s
     return "\n\n".join(sections)
 
 
-def render_report(metadata: dict[str, Any], analysis: dict[str, Any], output_path: Path | None = None) -> str:
+def render_report(
+    metadata: dict[str, Any],
+    analysis: dict[str, Any],
+    output_path: Path | None = None,
+    *,
+    validate_narrative: bool = True,
+) -> str:
     del output_path
     title = first_value(analysis.get("title_zh"), metadata.get("title_zh"), metadata.get("title"), "未命名论文")
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
-    body = build_document_body(metadata, analysis)
+    body = build_document_body(metadata, analysis, validate_narrative=validate_narrative)
     return (
-        template.replace("__REPORT_TITLE__", escape_latex(str(title)))
+        template.replace("__REPORT_TITLE__", escape_latex_with_inline_math(str(title)))
         .replace("__REPORT_DATE__", r"\today")
         .replace("__REPORT_BODY__", body)
     )
@@ -1020,6 +1166,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analysis-file")
     parser.add_argument("--output", required=True)
     parser.add_argument("--pdf-output")
+    parser.add_argument(
+        "--legacy-render",
+        action="store_true",
+        help="Render existing legacy analysis JSON without enforcing newer narrative integration checks.",
+    )
     return parser.parse_args()
 
 
@@ -1046,7 +1197,7 @@ def main() -> int:
     metadata = load_json(metadata_file)
     analysis = load_json(Path(args.analysis_file)) if args.analysis_file else {}
     output_path = Path(args.output)
-    report = render_report(metadata, analysis, output_path)
+    report = render_report(metadata, analysis, output_path, validate_narrative=not args.legacy_render)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
     if args.pdf_output:

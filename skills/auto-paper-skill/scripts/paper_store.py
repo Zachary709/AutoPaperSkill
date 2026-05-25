@@ -397,6 +397,16 @@ def file_href(library_dir: Path, target: Path) -> str:
         return quote(str(resolved_target))
 
 
+def versioned_file_href(library_dir: Path, target: Path) -> str:
+    href = file_href(library_dir, target)
+    try:
+        stat_result = target.stat()
+    except OSError:
+        return href
+    separator = "&" if "?" in href else "?"
+    return f"{href}{separator}v={stat_result.st_mtime_ns}"
+
+
 def existing_bundle_file(record: dict[str, Any], filename: str) -> Path | None:
     storage_dir = record.get("storage_dir")
     if not storage_dir:
@@ -419,7 +429,7 @@ def pdf_view_button_or_dash(
 ) -> str:
     if target is None:
         return '<span class="muted">-</span>'
-    href = html_text(file_href(library_dir, target))
+    href = html_text(versioned_file_href(library_dir, target))
     button_label = html_text(label)
     button_title = html_text(title)
     return (

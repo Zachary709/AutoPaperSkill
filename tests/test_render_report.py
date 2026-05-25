@@ -185,7 +185,7 @@ class RenderReportTests(unittest.TestCase):
 
         report = render_report.render_report(metadata, analysis)
         self.assertNotIn("This is still English only.", report)
-        self.assertIn(r"\section{论文主线（待 Codex 撰写）}", report)
+        self.assertIn(r"\section{论文主线（待撰写）}", report)
         self.assertIn("不要依赖脚本把 method\\_flow", report)
 
     def test_render_report_converts_raw_formula_to_math_when_safe(self) -> None:
@@ -231,6 +231,41 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn(r"\begin{equation*}", report)
         self.assertIn(r"\operatorname{SSC}(y)=\sum_{i:y_i=y}", report)
         self.assertNotIn(r"\ttfamily", report)
+
+    def test_render_report_converts_inline_latex_in_narrative_paragraphs(self) -> None:
+        metadata = {
+            "title": "Example Paper",
+            "paper_id": "title-123",
+            "authors": [{"name": "Alice"}],
+            "metadata_sources": [{"source_name": "arxiv", "is_official": True}],
+        }
+        analysis = {
+            "abstract_zh": "这是摘要直译。",
+            "summary_one_liner": "一句话概括。",
+            "narrative_sections": [
+                {
+                    "title_zh": "主线一：正文里的行内公式",
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text_zh": (
+                                r"校准变量 hat_c 会进入 S(h,\hat{c})，模型 M_phi 通过 \lambda 控制正则，"
+                                r"但 method_flow 仍然只是字段名。"
+                            ),
+                        }
+                    ],
+                }
+            ],
+        }
+
+        report = render_report.render_report(metadata, analysis)
+        self.assertIn(r"\(\hat{c}\)", report)
+        self.assertIn(r"\(S(h,\hat{c})\)", report)
+        self.assertIn(r"\(M_\phi\)", report)
+        self.assertIn(r"\(\lambda\)", report)
+        self.assertIn(r"method\_flow", report)
+        self.assertNotIn(r"\textbackslash{}hat", report)
+        self.assertNotIn(r"M\_phi", report)
 
     def test_render_report_rejects_meta_evidence_placement_language(self) -> None:
         metadata = {

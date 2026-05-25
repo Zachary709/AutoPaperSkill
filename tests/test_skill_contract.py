@@ -9,13 +9,13 @@ SKILL_ROOT = REPO_ROOT / "skills" / "auto-paper-skill"
 
 
 class SkillContractTests(unittest.TestCase):
-    def test_external_lookup_belongs_to_codex_not_scripts(self) -> None:
+    def test_external_lookup_belongs_to_agent_not_scripts(self) -> None:
         skill_text = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         source_policy = (SKILL_ROOT / "references" / "source-policy.md").read_text(encoding="utf-8")
 
-        self.assertIn("External lookup is Codex's responsibility", skill_text)
+        self.assertIn("External lookup is the active agent's responsibility", skill_text)
         self.assertIn("Do not use scripts for external metadata fetching", skill_text)
-        self.assertIn("External source access belongs to Codex, not helper scripts", source_policy)
+        self.assertIn("External source access belongs to the active agent, not helper scripts", source_policy)
         self.assertFalse((SKILL_ROOT / "scripts" / "metadata_fetcher.py").exists())
 
     def test_helper_scripts_do_not_import_network_clients(self) -> None:

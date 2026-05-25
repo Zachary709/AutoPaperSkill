@@ -173,7 +173,7 @@ Use this schema for every saved `metadata.json`.
       "source_name": "arxiv",
       "source_type": "api",
       "source_url": "https://arxiv.org/abs/2401.01234",
-      "access_method": "codex_web_or_mcp",
+      "access_method": "agent_web_or_mcp",
       "is_official": true,
       "retrieved_at": "2026-04-21T12:00:00Z",
       "fields": [
@@ -239,7 +239,7 @@ Use this schema for every saved `metadata.json`.
 - `metadata_sources`
   - keep one record per evidence source
   - include `is_official`
-  - include `access_method` when known, such as `codex_web`, `codex_mcp`, `codex_browser`, or `manual_inspection`
+  - include `access_method` when known, such as `agent_web`, `agent_mcp`, `agent_browser`, or `manual_inspection`
   - list the fields that came from that source when possible
 - `metadata_enrichment_status`
   - record which sources were checked
@@ -256,7 +256,7 @@ Use this schema for every saved `metadata.json`.
   - do not point this field to a run directory or temporary directory
 - `sources_dir`
   - use `<bundle_dir>/sources`
-  - store Codex-collected external source payloads or normalized excerpts here
+  - store agent-collected external source payloads or normalized excerpts here
 - `images_dir`
   - use `<bundle_dir>/images`
   - store extracted figure and table image assets here
@@ -316,7 +316,7 @@ Use this schema for every saved `metadata.json`.
   "source_name": "semantic_scholar",
   "source_type": "api",
   "source_url": "https://api.semanticscholar.org/...",
-  "access_method": "codex_web_or_mcp",
+  "access_method": "agent_web_or_mcp",
   "is_official": false,
   "retrieved_at": "2026-04-21T12:00:00Z",
   "fields": [
@@ -328,7 +328,7 @@ Use this schema for every saved `metadata.json`.
 
 ## Structured Analysis Input For `render_report.py`
 
-The report renderer expects a second JSON file with Codex-authored analysis fields. `narrative_sections` is required for a real report; helper scripts should not infer the main story from legacy evidence fields.
+The report renderer expects a second JSON file with agent-authored analysis fields. `narrative_sections` is required for a real report; helper scripts should not infer the main story from legacy evidence fields.
 
 ```json
 {
@@ -465,7 +465,7 @@ The report renderer expects a second JSON file with Codex-authored analysis fiel
 
 `narrative_sections[].blocks` rules:
 
-- Use `paragraph` blocks for Codex-written Chinese explanation.
+- Use `paragraph` blocks for agent-written Chinese explanation.
 - Use `evidence` blocks to insert a figure, table, equation, or proof item exactly where the explanation needs it.
 - Every evidence block should be immediately surrounded by paragraph blocks: one paragraph before it that makes the evidence necessary, and one paragraph after it that interprets the evidence and continues the argument.
 - Use `placement_hint_zh` for non-rendered placement notes when useful. Legacy `lead_in_zh` and `takeaway_zh` are treated as non-rendered planning hints, not final report prose.
@@ -477,11 +477,11 @@ The report renderer expects a second JSON file with Codex-authored analysis fiel
 
 `narrative_plan` rules:
 
-- Use this as Codex's drafting scaffold before writing `narrative_sections`.
+- Use this as the agent's drafting scaffold before writing `narrative_sections`.
 - Each plan item should answer one reader question and list the evidence IDs that will be used to answer it.
 - Do not render the plan as a separate report section unless the user explicitly asks for a plan. Its purpose is to force reader-first ordering before prose is written.
 - If experiments or theory are not central to the paper, say so in the relevant plan item and explain which evidence is still decisive.
 
-Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools. They are useful for drafting, but they are not a substitute for a Codex-written narrative.
+Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools. They are useful for drafting, but they are not a substitute for an agent-written narrative.
 
 Use UTF-8 for all files.

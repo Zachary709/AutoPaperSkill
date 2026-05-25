@@ -4,11 +4,11 @@
   <img src="pic/logo.png" alt="AutoPaperSkill" width="920">
 </p>
 
-`AutoPaperSkill` is a Codex skill for research-paper discovery, deduplication, local storage, browsable library indexing, and deep paper analysis.
+`AutoPaperSkill` is an AI-agent skill for research-paper discovery, deduplication, local storage, browsable library indexing, and deep paper analysis.
 
-It is designed for conversation-first use inside Codex. Helper scripts handle deterministic tasks such as paper storage, PDF parsing, metadata merging, LaTeX formatting, and PDF compilation; Codex remains responsible for external lookup, reading the evidence, deciding the narrative, and writing the report content.
+It is designed for conversation-first use in agent harnesses such as Codex or Claude Code. Helper scripts handle deterministic tasks such as paper storage, PDF parsing, metadata merging, LaTeX formatting, and PDF compilation; the active agent remains responsible for external lookup, reading the evidence, deciding the narrative, and writing the report content.
 
-External paper and author lookup is intentionally a Codex action, not a script action. Codex should use the web/search/MCP tools available in the conversation to inspect OpenReview, Semantic Scholar, Crossref, arXiv, official venue pages, or publisher pages, then save only the relevant source evidence for local merging and reporting.
+External paper and author lookup is intentionally an agent action, not a script action. The active agent should use the web/search/MCP tools available in the conversation to inspect OpenReview, Semantic Scholar, Crossref, arXiv, official venue pages, or publisher pages, then save only the relevant source evidence for local merging and reporting.
 
 ## What It Does
 
@@ -23,7 +23,7 @@ For deep analysis, the skill requires a local PDF and then:
 - parses the paper PDF for text, figures, tables, equations, and proof-related evidence
 - saves extracted visual assets into `images/`
 - enriches metadata across sources instead of stopping at the PDF source
-- has Codex write a Chinese-first, narrative-style report from the full evidence bundle
+- has the active agent write a Chinese-first, narrative-style report from the full evidence bundle
 - compiles the LaTeX report into `report.pdf`
 - maintains a generated `papers.html` index at the library root for browsing saved papers by venue
 
@@ -37,13 +37,13 @@ The current version is optimized for evidence-grounded paper reports rather than
 - Figures and tables are parsed by Docling as structured document objects first, then exported into `images/`.
 - Docling image export uses a higher default scale than the package default so extracted figures and tables are sharper; rerun `pdf_analyzer.py` with `--image-scale <value>` if a paper still needs higher-resolution assets.
 - Figures, tables, and equations must be embedded into the story line where they explain the method, experiment, or proof instead of being isolated as separate blocks.
-- Report drafting is reader-first: Codex should plan the reader's next question, the answer being built, and the evidence needed before writing the main narrative.
-- The renderer no longer fabricates the main analysis from legacy fields. If `analysis.narrative_sections` is missing, it emits a placeholder telling Codex to write the narrative first.
-- The renderer does not print `lead_in_zh` or `takeaway_zh` as report body. Evidence blocks must be surrounded by Codex-written paragraphs that integrate the figure/table/formula with the surrounding argument.
+- Report drafting is reader-first: the active agent should plan the reader's next question, the answer being built, and the evidence needed before writing the main narrative.
+- The renderer no longer fabricates the main analysis from legacy fields. If `analysis.narrative_sections` is missing, it emits a placeholder telling the agent to write the narrative first.
+- The renderer does not print `lead_in_zh` or `takeaway_zh` as report body. Evidence blocks must be surrounded by agent-written paragraphs that integrate the figure/table/formula with the surrounding argument.
 - Equations keep their original mathematical expressions and are rendered as LaTeX math when `latex_expression` is available or can be converted safely.
 - If OpenReview exposes a PDF resource, the skill should use that PDF instead of silently falling back to arXiv.
 - OpenReview PDF priority does not stop metadata enrichment: the skill still tries DOI/arXiv/citation/author-impact metadata through sources such as Semantic Scholar, Crossref, and arXiv.
-- Networked discovery and metadata enrichment must be performed by Codex through conversation-available tools. Bundled scripts must not fetch external paper metadata; they may only merge or render local evidence that Codex already collected.
+- Networked discovery and metadata enrichment must be performed by the active agent through conversation-available tools. Bundled scripts must not fetch external paper metadata; they may only merge or render local evidence that the agent already collected.
 - The PDF parser is the standard local `docling` pipeline only. This repository does not require `docling[vlm]`, remote VLM services, or separate large-model deployment.
 
 ## Output Layout
@@ -87,15 +87,17 @@ After that, storage commands can omit `--library-dir`; the script resolves the l
 
 ## Report Contract
 
-New reports must use Codex-authored `analysis.json` fields `narrative_plan`, `narrative_sections`, `evidence_blocks`, `author_analysis`, and `key_equations[].latex_expression`.
+New reports must use agent-authored `analysis.json` fields `narrative_plan`, `narrative_sections`, `evidence_blocks`, `author_analysis`, and `key_equations[].latex_expression`.
 
-`narrative_sections[].blocks` should interleave explanation and evidence in order: integrated paragraph, immediately relevant figure/table/formula, then another integrated paragraph that interprets the evidence and continues the argument. Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools for Codex to consult, not a substitute for a written report.
+`narrative_sections[].blocks` should interleave explanation and evidence in order: integrated paragraph, immediately relevant figure/table/formula, then another integrated paragraph that interprets the evidence and continues the argument. Legacy fields such as `method_flow`, `key_figures`, `key_tables`, and `key_equations` are evidence pools for the agent to consult, not a substitute for a written report.
 
-Evidence placement hints such as `placement_hint_zh` or legacy `lead_in_zh` may be kept in `analysis.json` for planning, but they are not rendered. The rendered text before and after a figure/table/formula must be fresh Codex-written prose that combines the evidence content with the current context.
+Evidence placement hints such as `placement_hint_zh` or legacy `lead_in_zh` may be kept in `analysis.json` for planning, but they are not rendered. The rendered text before and after a figure/table/formula must be fresh agent-written prose that combines the evidence content with the current context.
 
 The paragraph immediately before evidence must prepare the reader before naming the evidence. For example, define `P(True)`, Self-Consistency, SSC, the datasets, and ECE before inserting a CaTS calibration table; do not jump straight from the problem statement to `表 1 把...`.
 
 `narrative_plan` is the drafting scaffold, not a rendered section. Use it to decide what a reader needs to understand next, which evidence answers that question, and whether experiments, theory, figures, tables, or formulas deserve slow explanation or only concise mention.
+
+Inline math in the narrative, such as `\hat{c}`, `S(h,\hat{c})`, `M_phi`, and `\lambda`, is rendered as math when it is safe instead of being escaped as plain LaTeX text.
 
 ## Install
 

@@ -2,7 +2,7 @@
 
 Use this reference before writing `analysis.json` and rendering `report.tex`. The report should read like a coherent Chinese explanation, not a dump of metadata, figures, tables, and formulas.
 
-Codex writes the intellectual content. Helper scripts only render LaTeX, compile PDF, insert evidence assets, and enforce guardrails.
+The active agent writes the intellectual content. Helper scripts only render LaTeX, compile PDF, insert evidence assets, and enforce guardrails.
 
 ## Section Order
 
@@ -11,7 +11,7 @@ Codex writes the intellectual content. Helper scripts only render LaTeX, compile
 3. `英文摘要原文`
 4. `中文摘要`
 5. `一句话概括`
-6. Multiple narrative sections chosen by Codex
+6. Multiple narrative sections chosen by the active agent
 7. `价值、局限与可优化方向`
 
 Keep every section. Use `暂无信息。` only when the evidence is genuinely missing.
@@ -38,6 +38,7 @@ Use `paragraph -> evidence asset -> paragraph`.
 - Do not use generic claims such as `方法有效`, `实验充分`, `表说明效果好`, or `公式定义目标函数` without concrete details.
 - Embed extracted images when `asset_path` exists. Images are scaled by pixel width and capped at the text width.
 - Render formulas with `latex_expression` in math mode when possible.
+- Keep inline math in narrative prose as notation. Safe fragments such as `\hat{c}`, `S(h,\hat{c})`, `M_phi`, and `\lambda` are rendered as inline math by `render_report.py`.
 
 ## Examples
 

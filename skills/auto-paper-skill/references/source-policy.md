@@ -10,7 +10,7 @@ Default search order:
 2. Semantic Scholar for citations and author-level impact signals
 3. Additional MCP or web sources only when they improve coverage materially
 
-Codex performs these lookups through conversation-available web, search, MCP, or browser tools. Do not delegate external source access to bundled scripts.
+The active agent performs these lookups through conversation-available web, search, MCP, or browser tools. Do not delegate external source access to bundled scripts.
 
 Default workflow:
 
@@ -92,11 +92,11 @@ OpenReview priority is a PDF-source rule, not a reason to stop DOI, arXiv, citat
 
 ## External Access Boundary
 
-External source access belongs to Codex, not helper scripts.
+External source access belongs to the active agent, not helper scripts.
 
-- Codex may use available web/search/MCP/browser tools to inspect OpenReview, Semantic Scholar, Crossref, arXiv, official venue pages, publisher pages, or other reliable indexes.
+- The active agent may use available web/search/MCP/browser tools to inspect OpenReview, Semantic Scholar, Crossref, arXiv, official venue pages, publisher pages, or other reliable indexes.
 - Do not add or run bundled scripts whose job is to call external paper APIs or scrape external sites.
-- After Codex retrieves source evidence, it may save the relevant JSON payload, page facts, or normalized excerpt locally.
+- After the active agent retrieves source evidence, it may save the relevant JSON payload, page facts, or normalized excerpt locally.
 - `scripts/metadata_enricher.py` may merge those local payloads deterministically, but it must not be treated as a network fetcher.
 - Record every checked source in `metadata_sources`, including the source URL, retrieved date when available, fields used, and whether the source was official.
 
