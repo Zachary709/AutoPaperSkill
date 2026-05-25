@@ -600,6 +600,19 @@ def render_html_index(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Library</title>
+  <script>
+    window.MathJax = {{
+      tex: {{
+        inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+        displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+        processEscapes: true
+      }},
+      options: {{
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+      }}
+    }};
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
   <style>
     :root {{ color-scheme: light; --border: #d0d7de; --border-soft: #eaeef2; --muted: #59636e; --bg: #f6f8fa; --panel: #fff; --text: #1f2328; --accent: #0969da; --accent-soft: #ddf4ff; }}
     * {{ box-sizing: border-box; }}
