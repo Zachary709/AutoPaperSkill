@@ -613,6 +613,7 @@ def render_html_index(
     }};
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <style>
     :root {{ color-scheme: light; --border: #d0d7de; --border-soft: #eaeef2; --muted: #59636e; --bg: #f6f8fa; --panel: #fff; --text: #1f2328; --accent: #0969da; --accent-soft: #ddf4ff; }}
     * {{ box-sizing: border-box; }}
@@ -627,10 +628,18 @@ def render_html_index(
     input[type="search"]:focus {{ outline: 2px solid var(--accent-soft); border-color: var(--accent); }}
     .preview-pane {{ position: sticky; top: 16px; height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }}
     .viewer-bar {{ display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 44px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg); }}
-    #viewer-title {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    #viewer-title {{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .viewer-actions {{ display: flex; flex: 0 0 auto; gap: 8px; align-items: center; }}
+    .viewer-action {{ border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--accent); cursor: pointer; font: inherit; padding: 3px 8px; text-decoration: none; }}
+    .viewer-action:hover {{ background: var(--accent-soft); border-color: #54aeff; text-decoration: none; }}
     .viewer-empty {{ display: grid; place-items: center; height: calc(100vh - 78px); padding: 24px; color: var(--muted); text-align: center; line-height: 1.5; }}
     #pdf-frame {{ display: block; width: 100%; height: calc(100vh - 78px); border: 0; background: #fff; }}
-    #pdf-frame[hidden], .viewer-empty[hidden], #viewer-close[hidden] {{ display: none; }}
+    #pdf-pages {{ height: calc(100vh - 78px); overflow: auto; padding: 14px; background: #e9edf2; -webkit-overflow-scrolling: touch; }}
+    #pdf-pages[hidden], #pdf-frame[hidden], .viewer-empty[hidden], .viewer-action[hidden] {{ display: none; }}
+    .viewer-status {{ min-height: 80px; display: grid; place-items: center; color: var(--muted); line-height: 1.5; text-align: center; }}
+    .pdf-page {{ display: block; max-width: 100%; height: auto; margin: 0 auto 14px; background: #fff; box-shadow: 0 1px 4px rgba(31, 35, 40, 0.22); }}
+    .preview-pane:fullscreen {{ width: 100vw; height: 100vh; background: var(--panel); }}
+    .preview-pane:fullscreen #pdf-frame, .preview-pane:fullscreen #pdf-pages, .preview-pane:fullscreen .viewer-empty {{ height: calc(100vh - 52px); }}
     .venue-group {{ margin: 0 0 14px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }}
     .venue-group[hidden] {{ display: none; }}
     .venue-group summary {{ display: flex; justify-content: space-between; gap: 16px; align-items: center; cursor: pointer; padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid var(--border-soft); }}
@@ -651,8 +660,8 @@ def render_html_index(
     .title {{ font-weight: 650; line-height: 1.35; }}
     .summary {{ margin-top: 6px; color: var(--muted); line-height: 1.45; }}
     .links a, .pdf-button {{ display: inline-block; margin: 0 6px 6px 0; }}
-    .pdf-button, .preview-pane button {{ border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--accent); cursor: pointer; font: inherit; padding: 3px 8px; }}
-    .pdf-button:hover, .preview-pane button:hover {{ background: var(--accent-soft); border-color: #54aeff; }}
+    .pdf-button {{ border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--accent); cursor: pointer; font: inherit; padding: 3px 8px; }}
+    .pdf-button:hover {{ background: var(--accent-soft); border-color: #54aeff; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }}
     a {{ color: var(--accent); text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
@@ -663,7 +672,9 @@ def render_html_index(
       header {{ padding-left: 16px; padding-right: 16px; }}
       .app-shell {{ display: block; padding: 14px 16px 24px; }}
       .preview-pane {{ position: static; height: auto; margin-top: 16px; }}
-      .viewer-empty, #pdf-frame {{ height: 70vh; }}
+      .viewer-bar {{ align-items: flex-start; }}
+      .viewer-actions {{ flex-wrap: wrap; justify-content: flex-end; }}
+      .viewer-empty, #pdf-frame, #pdf-pages {{ height: 70vh; }}
       table {{ display: block; overflow-x: auto; white-space: normal; }}
       th, td {{ min-width: 120px; }}
       th:nth-child(1), td:nth-child(1) {{ min-width: 300px; }}
@@ -688,9 +699,14 @@ def render_html_index(
     <aside id="viewer" class="preview-pane" aria-label="PDF preview">
       <div class="viewer-bar">
         <strong id="viewer-title">PDF Preview</strong>
-        <button id="viewer-close" type="button" hidden>Close</button>
+        <div class="viewer-actions">
+          <a id="viewer-download" class="viewer-action" href="#" download hidden>Download</a>
+          <button id="viewer-fullscreen" class="viewer-action" type="button" hidden>Fullscreen</button>
+          <button id="viewer-close" class="viewer-action" type="button" hidden>Close</button>
+        </div>
       </div>
       <div id="viewer-empty" class="viewer-empty">Select a paper or report from the list to preview it here.</div>
+      <div id="pdf-pages" hidden></div>
       <iframe id="pdf-frame" title="PDF preview" hidden></iframe>
     </aside>
   </main>
@@ -702,8 +718,13 @@ def render_html_index(
     const viewer = document.getElementById('viewer');
     const viewerTitle = document.getElementById('viewer-title');
     const pdfFrame = document.getElementById('pdf-frame');
+    const pdfPages = document.getElementById('pdf-pages');
+    const viewerDownload = document.getElementById('viewer-download');
+    const viewerFullscreen = document.getElementById('viewer-fullscreen');
     const viewerClose = document.getElementById('viewer-close');
     const viewerEmpty = document.getElementById('viewer-empty');
+    let currentPdfHref = '';
+    let previewToken = 0;
     function normalize(value) {{
       return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
     }}
@@ -725,20 +746,123 @@ def render_html_index(
       }}
       count.textContent = visible + ' shown';
     }}
-    for (const button of document.querySelectorAll('[data-pdf-href]')) {{
-      button.addEventListener('click', () => {{
-        pdfFrame.src = button.dataset.pdfHref || '';
-        viewerTitle.textContent = button.dataset.pdfTitle || 'PDF Preview';
-        pdfFrame.hidden = false;
-        viewerEmpty.hidden = true;
-        viewerClose.hidden = false;
-        viewer.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-      }});
+    function isIOSPdfHost() {{
+      const ua = navigator.userAgent || '';
+      return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }}
-    viewerClose.addEventListener('click', () => {{
+    function withPdfHash(href) {{
+      return href.includes('#') ? href : href + '#toolbar=1&navpanes=0';
+    }}
+    function pdfFilenameFromHref(href) {{
+      const cleanHref = href.split('#')[0].split('?')[0];
+      const filename = cleanHref.split('/').filter(Boolean).pop() || 'paper.pdf';
+      return filename.toLowerCase().endsWith('.pdf') ? filename : 'paper.pdf';
+    }}
+    function clearRenderedPages() {{
+      pdfPages.replaceChildren();
+      pdfPages.hidden = true;
+    }}
+    function showStatus(message) {{
+      pdfPages.replaceChildren();
+      const status = document.createElement('div');
+      status.className = 'viewer-status';
+      status.textContent = message;
+      pdfPages.append(status);
+      pdfPages.hidden = false;
+    }}
+    function showFramePreview(href) {{
+      clearRenderedPages();
+      pdfFrame.src = withPdfHash(href);
+      pdfFrame.hidden = false;
+    }}
+    async function renderPdfPages(href, token) {{
+      const pdfjsLib = window.pdfjsLib;
+      if (!pdfjsLib) {{
+        throw new Error('PDF.js is not available');
+      }}
+      if (pdfjsLib.GlobalWorkerOptions) {{
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      }}
       pdfFrame.removeAttribute('src');
       pdfFrame.hidden = true;
+      showStatus('Loading PDF...');
+      const loadingTask = pdfjsLib.getDocument({{ url: href, disableAutoFetch: true }});
+      const pdf = await loadingTask.promise;
+      if (token !== previewToken) return;
+      showStatus(pdf.numPages + ' pages');
+      const status = pdfPages.querySelector('.viewer-status');
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {{
+        if (token !== previewToken) return;
+        const page = await pdf.getPage(pageNumber);
+        const unscaled = page.getViewport({{ scale: 1 }});
+        const availableWidth = Math.max((pdfPages.clientWidth || viewer.clientWidth || 420) - 32, 320);
+        const scale = Math.min(1.8, availableWidth / unscaled.width);
+        const viewport = page.getViewport({{ scale }});
+        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+        const canvas = document.createElement('canvas');
+        canvas.className = 'pdf-page';
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = Math.floor(viewport.width) + 'px';
+        canvas.style.height = Math.floor(viewport.height) + 'px';
+        canvas.setAttribute('aria-label', 'Page ' + pageNumber);
+        const context = canvas.getContext('2d');
+        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+        await page.render({{ canvasContext: context, viewport, transform }}).promise;
+        if (token !== previewToken) return;
+        pdfPages.append(canvas);
+        if (status) status.remove();
+      }}
+    }}
+    function previewPdf(button) {{
+      const href = button.dataset.pdfHref || '';
+      if (!href) return;
+      previewToken += 1;
+      currentPdfHref = href;
+      viewerTitle.textContent = button.dataset.pdfTitle || 'PDF Preview';
+      viewerDownload.href = href;
+      viewerDownload.download = pdfFilenameFromHref(href);
+      viewerDownload.hidden = false;
+      viewerFullscreen.hidden = false;
+      viewerClose.hidden = false;
+      viewerEmpty.hidden = true;
+      if (isIOSPdfHost()) {{
+        renderPdfPages(href, previewToken).catch(() => {{
+          if (href === currentPdfHref) {{
+            showFramePreview(href);
+          }}
+        }});
+      }} else {{
+        showFramePreview(href);
+      }}
+      viewer.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    }}
+    for (const button of document.querySelectorAll('[data-pdf-href]')) {{
+      button.addEventListener('click', () => {{
+        previewPdf(button);
+      }});
+    }}
+    viewerFullscreen.addEventListener('click', async () => {{
+      if (!currentPdfHref) return;
+      if (viewer.requestFullscreen) {{
+        try {{
+          await viewer.requestFullscreen();
+          return;
+        }} catch (_error) {{
+          // Fall through to opening the PDF when fullscreen is unavailable.
+        }}
+      }}
+      window.open(currentPdfHref, '_blank', 'noopener');
+    }});
+    viewerClose.addEventListener('click', () => {{
+      previewToken += 1;
+      currentPdfHref = '';
+      pdfFrame.removeAttribute('src');
+      pdfFrame.hidden = true;
+      clearRenderedPages();
       viewerEmpty.hidden = false;
+      viewerDownload.hidden = true;
+      viewerFullscreen.hidden = true;
       viewerClose.hidden = true;
       viewerTitle.textContent = 'PDF Preview';
     }});

@@ -298,18 +298,24 @@ class PaperStoreTests(unittest.TestCase):
             self.assertIn("arxiv-2401.01234", html_index)
             self.assertIn("window.MathJax", html_index)
             self.assertIn("tex-chtml.js", html_index)
+            self.assertIn("pdfjs-dist@3.11.174", html_index)
             self.assertIn("inlineMath: [['$', '$'], ['\\\\(', '\\\\)']]", html_index)
             self.assertRegex(html_index, r'data-pdf-href="arxiv-2401\.01234/paper\.pdf\?v=\d+"')
             self.assertRegex(html_index, r'data-pdf-href="arxiv-2401\.01234/report\.pdf\?v=\d+"')
             self.assertIn("view report", html_index)
             self.assertIn('class="preview-pane"', html_index)
             self.assertIn('id="viewer-empty"', html_index)
+            self.assertIn('id="viewer-download"', html_index)
+            self.assertIn('id="viewer-fullscreen"', html_index)
+            self.assertIn('id="pdf-pages"', html_index)
+            self.assertIn("isIOSPdfHost()", html_index)
+            self.assertIn("renderPdfPages(href, previewToken)", html_index)
+            self.assertIn("viewer.requestFullscreen", html_index)
             self.assertIn(
                 "grid-template-columns: minmax(560px, 0.85fr) minmax(640px, 1.15fr)",
                 html_index,
             )
             self.assertNotIn("minmax(420px, 38vw)", html_index)
-            self.assertNotIn("download=", html_index)
 
     def test_refresh_html_index_lists_existing_papers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
