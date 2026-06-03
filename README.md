@@ -1,7 +1,7 @@
 # AutoPaperSkill
 
 <p align="center">
-  <img src="skills/auto-paper-skill/assets/logo.png" alt="AutoPaperSkill logo" width="180">
+  <img src="pic/logo.png" alt="AutoPaperSkill logo" width="180">
 </p>
 
 AutoPaperSkill 是一个面向 AI agent 的论文整理 skill。它的目标不是替你“收藏一个 PDF”这么简单，而是把一篇论文变成可以长期检索、阅读和复查的本地资料包。
