@@ -504,17 +504,23 @@ def render_html_index(
                 summary = summary[:317].rstrip() + "..."
             storage_dir = Path(str(record.get("storage_dir", "")))
             metadata_link = link_or_dash(library_dir, storage_dir / "metadata.json", "metadata")
+            paper_file = existing_bundle_file(record, "paper.pdf")
+            report_file = existing_bundle_file(record, "report.pdf")
+            paper_preview_title = f"{title} - paper.pdf"
+            report_preview_title = f"{title} - report.pdf"
+            paper_href = versioned_file_href(library_dir, paper_file) if paper_file else ""
+            report_href = versioned_file_href(library_dir, report_file) if report_file else ""
             pdf_link = pdf_view_button_or_dash(
                 library_dir,
-                existing_bundle_file(record, "paper.pdf"),
+                paper_file,
                 "view paper",
-                f"{title} - paper.pdf",
+                paper_preview_title,
             )
             report_link = pdf_view_button_or_dash(
                 library_dir,
-                existing_bundle_file(record, "report.pdf"),
+                report_file,
                 "view report",
-                f"{title} - report.pdf",
+                report_preview_title,
             )
             tex_link = link_or_dash(library_dir, existing_bundle_file(record, "report.tex"), "tex")
             landing_page = first_present(record.get("landing_page"))
@@ -540,7 +546,16 @@ def render_html_index(
                 "          <tr "
                 f'data-search="{html_text(normalize_text(search_text))}" '
                 f'data-year="{html_text(year or "unknown")}" '
-                f'data-venue="{html_text(normalize_text(group_label) or "unknown")}">\n'
+                f'data-venue="{html_text(normalize_text(group_label) or "unknown")}" '
+                f'data-title="{html_text(title)}" '
+                f'data-authors="{html_text(authors or "暂无信息。")}" '
+                f'data-year-label="{html_text(year or "暂无")}" '
+                f'data-venue-label="{html_text(venue or "暂无信息。")}" '
+                f'data-paper-id="{html_text(paper_id)}" '
+                f'data-paper-href="{html_text(paper_href)}" '
+                f'data-paper-title="{html_text(paper_preview_title)}" '
+                f'data-report-href="{html_text(report_href)}" '
+                f'data-report-title="{html_text(report_preview_title)}">\n'
                 f"            <td><div class=\"title\">{html_text(title)}</div>"
                 f"<div class=\"summary\">{html_text(summary or '暂无摘要。')}</div></td>\n"
                 f"            <td>{html_text(authors or '暂无信息。')}</td>\n"
@@ -618,14 +633,33 @@ def render_html_index(
     :root {{ color-scheme: light; --border: #d0d7de; --border-soft: #eaeef2; --muted: #59636e; --bg: #f6f8fa; --panel: #fff; --text: #1f2328; --accent: #0969da; --accent-soft: #ddf4ff; }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: #f3f5f7; }}
-    header {{ padding: 24px 28px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }}
+    header {{ padding: 20px 28px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }}
+    .header-bar {{ display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }}
+    .header-title {{ min-width: 0; }}
+    .header-controls {{ display: flex; flex: 0 1 620px; justify-content: flex-end; align-items: flex-start; gap: 10px; min-width: 220px; }}
     h1 {{ margin: 0 0 8px; font-size: 26px; font-weight: 650; letter-spacing: 0; }}
     .meta {{ color: var(--muted); font-size: 13px; }}
     .app-shell {{ display: grid; grid-template-columns: minmax(560px, 0.85fr) minmax(640px, 1.15fr); gap: 18px; padding: 18px 20px 28px; align-items: start; }}
+    body.library-collapsed .app-shell {{ grid-template-columns: minmax(0, 1fr); }}
     .library-pane, .preview-pane {{ min-width: 0; }}
+    .library-pane[hidden] {{ display: none; }}
     .toolbar {{ display: flex; gap: 12px; align-items: center; margin-bottom: 14px; padding: 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; }}
-    input[type="search"] {{ width: min(720px, 100%); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 15px; background: #fff; color: var(--text); }}
+    .search-slot {{ min-width: 0; }}
+    #toolbar-search-slot {{ flex: 1 1 auto; }}
+    #header-search-slot {{ display: none; flex: 1 1 520px; max-width: 520px; }}
+    body.library-collapsed #header-search-slot {{ display: block; }}
+    .search-shell {{ position: relative; width: 100%; }}
+    input[type="search"] {{ width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 15px; background: #fff; color: var(--text); }}
     input[type="search"]:focus {{ outline: 2px solid var(--accent-soft); border-color: var(--accent); }}
+    .collapse-button, .search-result-action {{ border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--accent); cursor: pointer; font: inherit; padding: 7px 10px; text-decoration: none; white-space: nowrap; }}
+    .collapse-button:hover, .search-result-action:hover {{ background: var(--accent-soft); border-color: #54aeff; text-decoration: none; }}
+    .search-results {{ position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; max-height: min(56vh, 520px); overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); box-shadow: 0 12px 28px rgba(31, 35, 40, 0.18); }}
+    .search-result {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); }}
+    .search-result:last-child {{ border-bottom: 0; }}
+    .search-result-title {{ font-weight: 650; line-height: 1.35; }}
+    .search-result-meta {{ margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }}
+    .search-result-actions {{ display: flex; gap: 6px; align-items: center; }}
+    .search-result-empty {{ padding: 12px; color: var(--muted); line-height: 1.5; }}
     .preview-pane {{ position: sticky; top: 16px; height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }}
     .viewer-bar {{ display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 44px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg); }}
     #viewer-title {{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
@@ -670,11 +704,16 @@ def render_html_index(
     .errors {{ margin-top: 18px; padding: 12px 16px; border: 1px solid #d4a72c; border-radius: 6px; background: #fff8c5; }}
     @media (max-width: 900px) {{
       header {{ padding-left: 16px; padding-right: 16px; }}
+      .header-bar {{ display: block; }}
+      .header-controls {{ margin-top: 12px; justify-content: stretch; min-width: 0; }}
+      #header-search-slot {{ max-width: none; }}
       .app-shell {{ display: block; padding: 14px 16px 24px; }}
       .preview-pane {{ position: static; height: auto; margin-top: 16px; }}
       .viewer-bar {{ align-items: flex-start; }}
       .viewer-actions {{ flex-wrap: wrap; justify-content: flex-end; }}
       .viewer-empty, #pdf-frame, #pdf-pages {{ height: 70vh; }}
+      .search-result {{ display: block; }}
+      .search-result-actions {{ margin-top: 8px; flex-wrap: wrap; }}
       table {{ display: block; overflow-x: auto; white-space: normal; }}
       th, td {{ min-width: 120px; }}
       th:nth-child(1), td:nth-child(1) {{ min-width: 300px; }}
@@ -683,13 +722,26 @@ def render_html_index(
 </head>
 <body>
   <header>
-    <h1>Paper Library</h1>
-    <div class="meta">{len(sorted_records)} papers | generated at {html_text(generated_at)} | root: <code>{html_text(str(library_dir.resolve()))}</code></div>
+    <div class="header-bar">
+      <div class="header-title">
+        <h1>Paper Library</h1>
+        <div class="meta">{len(sorted_records)} papers | generated at {html_text(generated_at)} | root: <code>{html_text(str(library_dir.resolve()))}</code></div>
+      </div>
+      <div class="header-controls">
+        <div id="header-search-slot" class="search-slot"></div>
+        <button id="library-toggle" class="collapse-button" type="button" aria-controls="library-pane" aria-expanded="true">Hide list</button>
+      </div>
+    </div>
   </header>
   <main class="app-shell">
-    <section class="library-pane">
+    <section id="library-pane" class="library-pane">
       <div class="toolbar">
-        <input id="search" type="search" placeholder="Search title, author, venue, year, paper id, DOI, arXiv...">
+        <div id="toolbar-search-slot" class="search-slot">
+          <div id="search-shell" class="search-shell">
+            <input id="search" type="search" placeholder="Search title, author, venue, year, paper id, DOI, arXiv..." autocomplete="off" aria-controls="search-results" aria-expanded="false">
+            <div id="search-results" class="search-results" hidden></div>
+          </div>
+        </div>
         <span id="count" class="meta">{len(sorted_records)} shown</span>
       </div>
       <section id="papers">
@@ -712,6 +764,12 @@ def render_html_index(
   </main>
   <script>
     const input = document.getElementById('search');
+    const searchShell = document.getElementById('search-shell');
+    const searchResults = document.getElementById('search-results');
+    const headerSearchSlot = document.getElementById('header-search-slot');
+    const toolbarSearchSlot = document.getElementById('toolbar-search-slot');
+    const libraryPane = document.getElementById('library-pane');
+    const libraryToggle = document.getElementById('library-toggle');
     const rows = Array.from(document.querySelectorAll('#papers tr[data-search]'));
     const groups = Array.from(document.querySelectorAll('.venue-group'));
     const count = document.getElementById('count');
@@ -728,12 +786,101 @@ def render_html_index(
     function normalize(value) {{
       return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
     }}
+    function searchTerms() {{
+      return normalize(input.value).split(' ').filter(Boolean);
+    }}
+    function rowMatches(row, terms) {{
+      const haystack = row.dataset.search || '';
+      return terms.every(term => haystack.includes(term));
+    }}
+    function hideSearchResults() {{
+      searchResults.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+    }}
+    function showSearchResults() {{
+      searchResults.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }}
+    function typesetSearchResults() {{
+      if (window.MathJax && window.MathJax.typesetPromise) {{
+        window.MathJax.typesetPromise([searchResults]).catch(() => {{}});
+      }}
+    }}
+    function makeSearchAction(label, href, title) {{
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'search-result-action';
+      button.textContent = label;
+      button.addEventListener('click', () => {{
+        previewPdfFromData(href, title);
+        hideSearchResults();
+      }});
+      return button;
+    }}
+    function previewPdfFromData(href, title) {{
+      if (!href) return;
+      previewPdf({{ dataset: {{ pdfHref: href, pdfTitle: title || 'PDF Preview' }} }});
+    }}
+    function renderSearchResults(terms = searchTerms()) {{
+      searchResults.replaceChildren();
+      if (!terms.length) {{
+        hideSearchResults();
+        return;
+      }}
+      const matches = rows.filter(row => rowMatches(row, terms));
+      if (!matches.length) {{
+        const empty = document.createElement('div');
+        empty.className = 'search-result-empty';
+        empty.textContent = 'No matching papers.';
+        searchResults.append(empty);
+        showSearchResults();
+        typesetSearchResults();
+        return;
+      }}
+      for (const row of matches.slice(0, 20)) {{
+        const item = document.createElement('div');
+        item.className = 'search-result';
+        const main = document.createElement('div');
+        const title = document.createElement('div');
+        title.className = 'search-result-title';
+        title.textContent = row.dataset.title || 'Untitled';
+        const meta = document.createElement('div');
+        meta.className = 'search-result-meta';
+        meta.textContent = [row.dataset.authors, row.dataset.yearLabel, row.dataset.venueLabel]
+          .filter(value => value && value !== '暂无信息。' && value !== '暂无')
+          .join(' | ');
+        main.append(title, meta);
+        const actions = document.createElement('div');
+        actions.className = 'search-result-actions';
+        if (row.dataset.paperHref) {{
+          actions.append(makeSearchAction('Paper', row.dataset.paperHref, row.dataset.paperTitle));
+        }}
+        if (row.dataset.reportHref) {{
+          actions.append(makeSearchAction('Report', row.dataset.reportHref, row.dataset.reportTitle));
+        }}
+        if (!actions.children.length) {{
+          const unavailable = document.createElement('span');
+          unavailable.className = 'muted';
+          unavailable.textContent = 'No preview';
+          actions.append(unavailable);
+        }}
+        item.append(main, actions);
+        searchResults.append(item);
+      }}
+      if (matches.length > 20) {{
+        const more = document.createElement('div');
+        more.className = 'search-result-empty';
+        more.textContent = (matches.length - 20) + ' more matches. Refine the search to narrow the list.';
+        searchResults.append(more);
+      }}
+      showSearchResults();
+      typesetSearchResults();
+    }}
     function applyFilter() {{
-      const terms = normalize(input.value).split(' ').filter(Boolean);
+      const terms = searchTerms();
       let visible = 0;
       for (const row of rows) {{
-        const haystack = row.dataset.search || '';
-        const match = terms.every(term => haystack.includes(term));
+        const match = rowMatches(row, terms);
         row.style.display = match ? '' : 'none';
         if (match) visible += 1;
       }}
@@ -745,6 +892,18 @@ def render_html_index(
         group.hidden = groupVisible === 0;
       }}
       count.textContent = visible + ' shown';
+      renderSearchResults(terms);
+    }}
+    function setLibraryCollapsed(collapsed) {{
+      document.body.classList.toggle('library-collapsed', collapsed);
+      libraryPane.hidden = collapsed;
+      libraryToggle.textContent = collapsed ? 'Show list' : 'Hide list';
+      libraryToggle.setAttribute('aria-expanded', String(!collapsed));
+      const targetSlot = collapsed ? headerSearchSlot : toolbarSearchSlot;
+      if (searchShell.parentElement !== targetSlot) {{
+        targetSlot.append(searchShell);
+      }}
+      renderSearchResults();
     }}
     function isIOSPdfHost() {{
       const ua = navigator.userAgent || '';
@@ -817,6 +976,7 @@ def render_html_index(
     function previewPdf(button) {{
       const href = button.dataset.pdfHref || '';
       if (!href) return;
+      hideSearchResults();
       previewToken += 1;
       currentPdfHref = href;
       viewerTitle.textContent = button.dataset.pdfTitle || 'PDF Preview';
@@ -866,7 +1026,17 @@ def render_html_index(
       viewerClose.hidden = true;
       viewerTitle.textContent = 'PDF Preview';
     }});
+    libraryToggle.addEventListener('click', () => {{
+      setLibraryCollapsed(!document.body.classList.contains('library-collapsed'));
+    }});
     input.addEventListener('input', applyFilter);
+    input.addEventListener('focus', () => renderSearchResults());
+    input.addEventListener('keydown', event => {{
+      if (event.key === 'Escape') hideSearchResults();
+    }});
+    document.addEventListener('click', event => {{
+      if (!searchShell.contains(event.target)) hideSearchResults();
+    }});
   </script>
 </body>
 </html>

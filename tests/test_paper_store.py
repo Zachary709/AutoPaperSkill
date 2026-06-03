@@ -308,6 +308,13 @@ class PaperStoreTests(unittest.TestCase):
             self.assertIn('id="viewer-download"', html_index)
             self.assertIn('id="viewer-fullscreen"', html_index)
             self.assertIn('id="pdf-pages"', html_index)
+            self.assertIn('id="library-toggle"', html_index)
+            self.assertIn('id="header-search-slot"', html_index)
+            self.assertIn('id="search-results"', html_index)
+            self.assertIn("body.library-collapsed .app-shell", html_index)
+            self.assertIn("function setLibraryCollapsed", html_index)
+            self.assertIn("makeSearchAction('Paper'", html_index)
+            self.assertIn("makeSearchAction('Report'", html_index)
             self.assertIn("isIOSPdfHost()", html_index)
             self.assertIn("renderPdfPages(href, previewToken)", html_index)
             self.assertIn("viewer.requestFullscreen", html_index)
@@ -315,6 +322,8 @@ class PaperStoreTests(unittest.TestCase):
                 "grid-template-columns: minmax(560px, 0.85fr) minmax(640px, 1.15fr)",
                 html_index,
             )
+            self.assertRegex(html_index, r'data-paper-href="arxiv-2401\.01234/paper\.pdf\?v=\d+"')
+            self.assertRegex(html_index, r'data-report-href="arxiv-2401\.01234/report\.pdf\?v=\d+"')
             self.assertNotIn("minmax(420px, 38vw)", html_index)
 
     def test_refresh_html_index_lists_existing_papers(self) -> None:
