@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+try:
+    from .venue_utils import paper_year, venue_display_label, venue_group_label
+except ImportError:  # pragma: no cover - direct script execution
+    from venue_utils import paper_year, venue_display_label, venue_group_label
+
 DEFAULT_LIBRARY_ENV_VAR = "AUTOPAPER_LIBRARY_DIR"
 CONFIG_FILE_ENV_VAR = "AUTOPAPER_CONFIG_FILE"
 HTML_INDEX_FILENAME = "papers.html"
@@ -277,8 +282,13 @@ def prepare_record(payload: dict[str, Any]) -> dict[str, Any]:
     record["published_at"] = record.get("published_at") or None
     record["abstract_en"] = record.get("abstract_en") or None
     record["abstract_zh"] = record.get("abstract_zh") or None
-    record["venue"] = record.get("venue") or None
     record["venue_type"] = record.get("venue_type") or None
+    raw_venue = collapse_whitespace(str(record.get("venue", ""))) if record.get("venue") else ""
+    record["venue"] = raw_venue or None
+    normalized_venue = venue_display_label(record)
+    if raw_venue and normalized_venue and normalized_venue != raw_venue and not record.get("venue_raw"):
+        record["venue_raw"] = raw_venue
+    record["venue"] = normalized_venue or record["venue"]
     record["citation_count"] = record.get("citation_count")
     return record
 
@@ -366,12 +376,6 @@ def first_present(*values: Any) -> str:
     return ""
 
 
-def paper_year(record: dict[str, Any]) -> str:
-    value = first_present(record.get("year"), record.get("published_at"), record.get("publication_date"))
-    match = re.search(r"\b(19|20)\d{2}\b", value)
-    return match.group(0) if match else ""
-
-
 def authors_label(authors: Any, limit: int = 3) -> str:
     normalized = normalize_authors(authors)
     names = [author["name"] for author in normalized if author.get("name")]
@@ -438,23 +442,6 @@ def pdf_view_button_or_dash(
     )
 
 
-def venue_group_label(record: dict[str, Any]) -> str:
-    venue = first_present(record.get("venue"), record.get("publication_venue"))
-    if not venue:
-        return "Unspecified Venue"
-    cleaned = re.sub(r"\((?:19|20)\d{2}\)", " ", venue)
-    cleaned = re.sub(r"\b(?:19|20)\d{2}\b", " ", cleaned)
-    cleaned = re.sub(
-        r"(?:[\s,;:/|_-]+(?:poster|oral|spotlight|talk|workshop|demo|findings)\b)+\s*$",
-        " ",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    cleaned = cleaned.strip(" ,;:-/|")
-    return cleaned or "Unspecified Venue"
-
-
 def record_sort_key(record: dict[str, Any]) -> tuple[int, str, str]:
     year = paper_year(record)
     year_value = int(year) if year.isdigit() else 0
@@ -491,7 +478,7 @@ def render_html_index(
         for record in group_records:
             title = first_present(record.get("title"), record.get("paper_id"), "Untitled")
             authors = authors_label(record.get("authors"))
-            venue = first_present(record.get("venue"), record.get("venue_type"))
+            venue = venue_display_label(record) or first_present(record.get("venue"), record.get("venue_type"))
             year = paper_year(record)
             paper_id = first_present(record.get("paper_id"))
             citation_count = first_present(record.get("citation_count"))
@@ -534,6 +521,7 @@ def render_html_index(
                     title,
                     authors,
                     venue,
+                    first_present(record.get("venue_raw"), record.get("publication_venue")),
                     group_label,
                     year,
                     paper_id,

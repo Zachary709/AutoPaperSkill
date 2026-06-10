@@ -39,6 +39,30 @@ Resolve the library root in this order:
 
 Do not silently use `/tmp`, a run directory, or the current working directory as the durable library root.
 
+## Subagent Isolation Contract
+
+When the runtime can start subagents and the task includes deep paper analysis,
+report generation, or a batch of papers, delegate each paper's reading and
+analysis to an isolated subagent by default. The isolation goal is to prevent
+the report from being contaminated by conversation context, neighboring paper
+bundles, or previously generated reports.
+
+- Give each subagent only the target paper title/identifier, the target PDF or
+  canonical bundle path, the skill instructions needed for that paper, and the
+  required output contract.
+- Do not preload other papers, prior reports, existing `analysis.json` files,
+  or broad library summaries into the subagent unless the user explicitly asks
+  for comparison.
+- The main agent may use the local library for deterministic deduplication,
+  storage, validation, rendering, and final `papers.html` refresh, but should
+  avoid letting existing bundles shape the paper's interpretation.
+- For multi-paper batches, prefer one isolated subagent per paper over one
+  shared analysis thread. Combine results only after each paper's independent
+  analysis is complete.
+- If subagents are unavailable, continue in the main thread, but explicitly keep
+  the same isolation discipline: read the target paper's own evidence first and
+  avoid borrowing claims from existing reports.
+
 ## Workflow
 
 1. Scan or inspect the local library when available.
@@ -67,6 +91,7 @@ Do not silently use `/tmp`, a run directory, or the current working directory as
    - Docling is the required parser. If it fails, report the failure instead of falling back silently.
    - Default image export scale is `3`; increase with `--image-scale 4` or higher when assets are blurry.
 8. The active agent writes `analysis.json`.
+   - If subagents are available, use the Subagent Isolation Contract for this step.
    - Read PDF text/Markdown, sections, captions, extracted images, formulas, proof items, metadata, and author evidence.
    - Inspect important extracted images; do not rely only on captions.
    - Write `narrative_plan` first, then agent-authored `narrative_sections`.

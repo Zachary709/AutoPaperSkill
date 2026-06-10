@@ -11,10 +11,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from .venue_utils import venue_display_label
+except ImportError:  # pragma: no cover - direct script execution
+    from venue_utils import venue_display_label
+
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 MAX_GRAPHIC_WIDTH_FRACTION = 0.92
 REFERENCE_GRAPHIC_PIXEL_WIDTH = 800
 MIN_GRAPHIC_WIDTH_FRACTION = 0.05
+BREAKABLE_MATH_CHAR_THRESHOLD = 160
 UNSAFE_MATH_RE = re.compile(
     r"\\(?:input|include|write|openout|read|catcode|usepackage|documentclass|newcommand|renewcommand|def|gdef|edef|directlua|csname|immediate)\b",
     re.IGNORECASE,
@@ -265,13 +271,66 @@ def raw_to_latex_expression(raw_expression: Any) -> str | None:
     return text if is_safe_math_expression(text) else None
 
 
+def split_long_aligned_math_line(line: str) -> list[str]:
+    if len(line) <= 130:
+        return [line]
+    depth = 0
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(0, depth - 1)
+        if depth == 0 and index > len(line) * 0.45:
+            if line.startswith(r"-\frac", index) or line.startswith(r"+\frac", index):
+                return [line[:index].rstrip(), r"\quad " + line[index:].lstrip()]
+    return [line]
+
+
+def split_latex_expression_for_alignment(expression: str) -> list[str]:
+    if len(expression) <= 120 or r"\begin" in expression:
+        return []
+    segments = [segment.strip() for segment in re.split(r",\s*\\quad\s*", expression) if segment.strip()]
+    if len(segments) <= 1:
+        return []
+    lines: list[str] = []
+    for index, segment in enumerate(segments):
+        if index < len(segments) - 1 and not segment.endswith(","):
+            segment = f"{segment},"
+        lines.extend(split_long_aligned_math_line(segment))
+    return lines
+
+
+def latex_aligned_math_block(lines: list[str]) -> str:
+    body = []
+    for index, line in enumerate(lines):
+        suffix = r"\\" if index < len(lines) - 1 else ""
+        body.append(rf"& {line}{suffix}")
+    return "\n".join([r"\begin{equation*}", r"\begin{aligned}", *body, r"\end{aligned}", r"\end{equation*}"])
+
+
+def latex_equation_math_block(expression: str) -> str:
+    return "\n".join([r"\begin{equation*}", expression, r"\end{equation*}"])
+
+
 def latex_math_block(item: dict[str, Any]) -> str:
     expression = item.get("latex_expression")
     latex_expression = strip_math_delimiters(str(expression)) if expression not in (None, "") else None
     if not latex_expression:
         latex_expression = raw_to_latex_expression(item.get("raw_expression"))
     if latex_expression and is_safe_math_expression(latex_expression):
-        return "\n".join([r"\begin{equation*}", latex_expression, r"\end{equation*}"])
+        aligned_lines = split_latex_expression_for_alignment(latex_expression)
+        if aligned_lines:
+            return latex_aligned_math_block(aligned_lines)
+        if len(latex_expression) <= BREAKABLE_MATH_CHAR_THRESHOLD:
+            return latex_equation_math_block(latex_expression)
+        return "\n".join([r"\begin{dmath*}", latex_expression, r"\end{dmath*}"])
     raw_expression = str(item.get("raw_expression") or "暂无公式。")
     return "\n".join([r"\begin{quote}", latex_text_block(raw_expression), r"\end{quote}"])
 
@@ -1076,10 +1135,11 @@ def build_snapshot(metadata: dict[str, Any]) -> list[str]:
         if formatted:
             source_summary = ", ".join(formatted)
 
+    venue_label = venue_display_label(metadata) or first_value(metadata.get("venue"), "暂无信息。")
     return [
         f"论文 ID: {first_value(metadata.get('paper_id'), '暂无信息。')}",
         f"发表时间: {first_value(metadata.get('published_at'), '暂无信息。')}",
-        f"会议或期刊: {first_value(metadata.get('venue'), '暂无信息。')}",
+        f"会议或期刊: {venue_label}",
         f"DOI: {first_value(metadata.get('doi'), '暂无信息。')}",
         f"arXiv ID: {first_value(metadata.get('arxiv_id'), '暂无信息。')}",
         f"引用次数: {first_value(metadata.get('citation_count'), '暂无信息。')}",

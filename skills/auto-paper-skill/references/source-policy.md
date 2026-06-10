@@ -58,6 +58,9 @@ Rules:
 - Mark `is_official: true` only for official venue, proceedings, or publisher pages.
 - If you use a fallback source, mark `is_official: false`.
 - For every year, keep the landing page you used in `metadata_sources`.
+- Save `venue` as `<conference-or-journal-name> <year>`, such as `ICLR 2026`
+  or `TMLR 2025`; move track, presentation, proceedings, or source-specific
+  labels to `indexing_notes` instead of appending them to `venue`.
 - Do not claim that a venue page is official unless the domain or page ownership clearly supports it.
 - If the venue uses OpenReview and OpenReview exposes a PDF or official attachment, use that OpenReview resource for PDF download before considering arXiv.
 - If the first OpenReview PDF request fails, continue troubleshooting the OpenReview route first.

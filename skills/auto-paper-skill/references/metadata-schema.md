@@ -218,6 +218,13 @@ Use this schema for every saved `metadata.json`.
 - `figures`
 - `tables`
 - `equations`
+
+`venue` must use the concise display form `<conference-or-journal-name> <year>`,
+for example `ICLR 2026`, `NeurIPS 2025`, `ACL 2026`, or `TMLR 2025`.
+Do not include presentation labels such as `Poster`, `Oral`, `Spotlight`,
+`Main Track`, proceedings prefixes, volume names, or source-specific strings in
+`venue`; keep those details in `indexing_notes` or `metadata_sources` when they
+matter.
 - `theoretical_items`
 
 ## Field Rules

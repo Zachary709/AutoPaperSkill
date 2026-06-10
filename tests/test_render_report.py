@@ -31,6 +31,7 @@ class RenderReportTests(unittest.TestCase):
         template = (SKILL_ROOT / "assets" / "report-template.tex").read_text(encoding="utf-8")
 
         self.assertIn(r"\usepackage{indentfirst}", template)
+        self.assertIn(r"\usepackage{breqn}", template)
         self.assertIn(r"\setlength{\parindent}{2\ccwd}", template)
         self.assertNotIn(r"\setlength{\parindent}{2em}", template)
         self.assertIn(r"\titlespacing{\section}", template)
@@ -55,6 +56,17 @@ class RenderReportTests(unittest.TestCase):
             self.assertIn(r"width=0.23\linewidth,keepaspectratio", small_latex)
             self.assertIn(r"width=0.92\linewidth,keepaspectratio", large_latex)
             self.assertIn(r"width=0.92\linewidth,keepaspectratio", invalid_latex)
+
+    def test_build_snapshot_normalizes_venue_label(self) -> None:
+        snapshot = render_report.build_snapshot(
+            {
+                "paper_id": "title-123",
+                "published_at": "2026-04-01",
+                "venue": "The Thirteenth International Conference on Learning Representations (ICLR 2026) Poster",
+            }
+        )
+
+        self.assertIn("会议或期刊: ICLR 2026", snapshot)
 
     def test_render_report_keeps_required_sections(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -231,6 +243,49 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn(r"\begin{equation*}", report)
         self.assertIn(r"\operatorname{SSC}(y)=\sum_{i:y_i=y}", report)
         self.assertNotIn(r"\ttfamily", report)
+
+    def test_render_report_keeps_short_display_math_unbroken(self) -> None:
+        short_formula = (
+            r"Y_b(y)=\frac{1}{K}\sum_{k=1}^{K}\mathbf{1}[\hat{a}_{b,k}=a^{\star}],"
+            r"\qquad C_b(y)=\operatorname{Probe}(h_b(y))"
+        )
+
+        latex = render_report.latex_math_block({"latex_expression": short_formula})
+
+        self.assertIn(r"\begin{equation*}", latex)
+        self.assertIn(short_formula, latex)
+        self.assertNotIn(r"\begin{dmath*}", latex)
+        self.assertNotIn(r"\begin{aligned}", latex)
+
+    def test_render_report_uses_breakable_display_math_for_long_formulas(self) -> None:
+        long_formula = (
+            r"B^{+}(y)=\{b\in B(y):Y_b(y)\ge 1/2\},\quad "
+            r"B^{-}(y)=\{b\in B(y):Y_b(y)<1/2\},\quad "
+            r"R_{\mathrm{margin}}(y)=\frac{1}{|B^{+}(y)|}\sum_{b\in B^{+}(y)}Y_b(y)"
+            r"-\frac{1}{|B^{-}(y)|}\sum_{b\in B^{-}(y)}Y_b(y)"
+        )
+
+        latex = render_report.latex_math_block({"latex_expression": long_formula})
+
+        self.assertIn(r"\begin{equation*}", latex)
+        self.assertIn(r"\begin{aligned}", latex)
+        self.assertIn(r"B^{+}(y)=\{b\in B(y):Y_b(y)\ge 1/2\},\\", latex)
+        self.assertIn(r"B^{-}(y)=\{b\in B(y):Y_b(y)<1/2\},\\", latex)
+        self.assertIn(r"R_{\mathrm{margin}}(y)=\frac{1}{|B^{+}(y)|}", latex)
+        self.assertNotIn(r"\begin{dmath*}", latex)
+
+    def test_render_report_uses_dmath_for_long_formulas_without_safe_split(self) -> None:
+        long_formula = (
+            r"\mathcal{L}(\theta)=\alpha\operatorname{CrossEntropy}(p_\theta(y\mid x),y)"
+            r"+\beta\operatorname{SmoothL1}(c_\theta(x,y),\hat{c})"
+            r"+\gamma\operatorname{KL}(q_\theta(z\mid x,y)\Vert q_{\mathrm{ref}}(z\mid x,y))"
+            r"+\lambda\sum_{t=1}^{T}\left\|\nabla_\theta h_t(x,y)\right\|_2^2"
+        )
+
+        latex = render_report.latex_math_block({"latex_expression": long_formula})
+
+        self.assertIn(r"\begin{dmath*}", latex)
+        self.assertNotIn(r"\begin{aligned}", latex)
 
     def test_render_report_converts_inline_latex_in_narrative_paragraphs(self) -> None:
         metadata = {

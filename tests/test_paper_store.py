@@ -41,6 +41,33 @@ class PaperStoreTests(unittest.TestCase):
             "arxiv-2401.01234",
         )
 
+    def test_prepare_record_normalizes_venue_to_name_and_year(self) -> None:
+        raw_venue = "The Thirteenth International Conference on Learning Representations (ICLR 2026) Poster"
+
+        record = paper_store.prepare_record(
+            {
+                "title": "Example",
+                "arxiv_id": "2601.01234",
+                "published_at": "2026-04-01",
+                "venue": raw_venue,
+            }
+        )
+
+        self.assertEqual(record["venue"], "ICLR 2026")
+        self.assertEqual(record["venue_raw"], raw_venue)
+
+    def test_prepare_record_uses_year_from_raw_venue_when_needed(self) -> None:
+        record = paper_store.prepare_record(
+            {
+                "title": "Example",
+                "arxiv_id": "2601.01234",
+                "venue": "ICLR 2026 Poster",
+            }
+        )
+
+        self.assertEqual(record["venue"], "ICLR 2026")
+        self.assertEqual(paper_store.paper_year(record), "2026")
+
     def test_find_duplicate_matches_normalized_title(self) -> None:
         existing = [
             {
@@ -387,7 +414,8 @@ class PaperStoreTests(unittest.TestCase):
             self.assertIn("Poster ICLR Paper", html_index)
             self.assertIn("Alice, Bob", html_index)
             self.assertIn("ICLR 2026", html_index)
-            self.assertIn("ICLR 2026 Poster", html_index)
+            self.assertNotIn(">ICLR 2026 Poster<", html_index)
+            self.assertEqual(html_index.count("<td>ICLR 2026</td>"), 2)
             self.assertIn("2026", html_index)
             self.assertIn("这个摘要会显示在 HTML 中。", html_index)
             self.assertEqual(html_index.count('class="venue-heading">ICLR</span>'), 1)
